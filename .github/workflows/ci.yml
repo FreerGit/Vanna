@@ -1,0 +1,25 @@
+name: CI
+
+on: [push]
+
+jobs:
+  backend-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up OCaml
+        uses: avsm/setup-ocaml@v1
+        with:
+          ocaml-version: 5.2.0
+          
+      - name: Run tests
+        run: |
+          opam install dune --yes
+          opam install . --deps-only --yes
+          eval $(opam env)
+          opam list
+          dune runtest
+        working-directory: ./backend
+
