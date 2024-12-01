@@ -25,6 +25,9 @@
   core
   core_unix
   yojson
+  bytes
+  logs
+  fmt
   bin_prot
   ppx_jane
   ppx_expect

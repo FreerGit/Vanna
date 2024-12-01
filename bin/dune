@@ -1,4 +1,17 @@
-(executable
- (public_name vanna)
- (name main)
- (libraries vanna))
+(executables
+ (public_names replica client)
+ (names replica client)
+ (libraries
+  vanna
+  core
+  bytes
+  eio
+  eio_main
+  piaf
+  logs
+  logs.fmt
+  logs.threaded
+  fmt.tty
+  bin_prot)
+ (preprocess
+  (pps ppx_jane ppx_sexp_message ppx_bin_prot)))
