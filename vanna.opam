@@ -15,6 +15,7 @@ depends: [
   "core"
   "core_unix"
   "yojson"
+  "bytes"
   "logs"
   "fmt"
   "bin_prot"

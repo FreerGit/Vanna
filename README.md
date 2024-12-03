@@ -33,3 +33,18 @@ if its a new request, the primary increases the op_num, it appends the requested
 
 Then it needs to notify all replicas so create a PREPARE (view_num, op_num, commit_num, message) and send to all replicas
 
+## Three sub protocols
+**Normal case processing of user requests.**
+
+**View changes to selsect a new primary**
+
+**Recovery of a failed replica so that it can rejoin the group.**
+
+## Section 4 - Fixed number of replicas
+
+The replica which has lowest IP is replica 1, the primary is choosen round robin, starting with replica 1
+
+
+## Section 5 & 6 - Optimizations
+
+## Section 7 - Reconfiguration (variable number of replicas)

@@ -1,19 +1,25 @@
-open Bin_prot.Std
+(* open Bin_prot.Std *)
+open! Core
 
-(* TODO: add SortedIPv4List *)
 module State = struct
   type t =
-    { configuration : string list
-    ; view_num : int
-    ; request_num : int
+    { configuration : Configuration.SortedIPList.t
+    ; view_number : int
+    ; request_number : int
     }
-  [@@deriving bin_io]
+  [@@deriving sexp_of]
+  (* [@@deriving bin_io] *)
 end
 
 let%expect_test "tt" =
-  let abc = 338 in
-  print_int abc;
-  [%expect {| 338 |}]
+  let x : State.t =
+    { configuration = Configuration.SortedIPList.empty
+    ; view_number = 0
+    ; request_number = 0
+    }
+  in
+  print_s (State.sexp_of_t x);
+  [%expect {| ((configuration ()) (view_number 0) (request_number 0)) |}]
 ;;
 
 let%test _ = 5 = 5
