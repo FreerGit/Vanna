@@ -62,7 +62,9 @@ let handle_connection connection =
 let run_server ~env ~sw ~host ~port =
   (* Logs.info (fun f -> f "Starting server on %s:%d" (Ipaddr.V4.to_string host) port); *)
   let net = Eio.Stdenv.net env in
-  let socket = Eio.Net.listen ~sw net (`Tcp (host, port)) ~backlog:1024 in
+  let socket =
+    Eio.Net.listen ~reuse_addr:true ~sw net (`Tcp (host, port)) ~backlog:1024
+  in
   while true do
     Switch.run
     @@ fun conn_sw ->
@@ -83,5 +85,5 @@ let () =
     setup_log ();
     Switch.run (fun sw ->
       let host = Eio.Net.Ipaddr.V4.loopback in
-      run_server ~env ~sw ~host ~port:8006))
+      run_server ~env ~sw ~host ~port:8000))
 ;;
