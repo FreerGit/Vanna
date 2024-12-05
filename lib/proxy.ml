@@ -1,4 +1,32 @@
-(* open Bin_prot.Std *)
+open! Core
+
+module Request = struct
+  type t =
+    { op_number : int
+    ; client_id : int
+    ; request_number : int
+    ; operation : Operation.t
+    }
+  [@@deriving bin_io, sexp]
+end
+
+module ClientTable = struct
+  module RequstRecord = struct
+    type t =
+      { last_request : int
+      ; last_result : int option (* None implies not executed*)
+      }
+    [@@deriving sexp, hash, compare]
+  end
+
+  type t = (int, RequstRecord.t) Hashtbl.t
+
+  let create () = Hashtbl.create (module Int)
+end
+
+(* let handle_client_request () : ClientTable.t = Hashtbl.create (module Int) *)
+
+(* open Bin_prot.Std
 open! Core
 
 module State = struct
@@ -22,4 +50,4 @@ let%expect_test "tt" =
   [%expect {| ((configuration ()) (view_number 0) (request_number 0)) |}]
 ;;
 
-let%test _ = 5 = 5
+let%test _ = 5 = 5 *)

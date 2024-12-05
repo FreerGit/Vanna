@@ -1,5 +1,6 @@
 (library
  (name vanna)
+ (public_name vanna)
  (inline_tests)
  (libraries core core_unix eio)
  (preprocess

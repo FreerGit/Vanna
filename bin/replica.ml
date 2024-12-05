@@ -1,48 +1,37 @@
 module B = Bytes
 open! Core
-open Eio.Std
-open Vanna
+open! Vanna
 
-module Status = struct
-  type t =
-    | Normal
-    | ViewChange
-    | Recovering
-  [@@deriving bin_io, sexp]
-end
-
-module State = struct
-  type t =
-    { configuration : Configuration.SortedIPList.t
-    ; replica_number : int (* This is the index into its IP in configuration *)
-    ; view_number : int (* Initially 0 *)
-    ; status : Status.t
-    ; op_number : int (* Initially 0, the most recently recieved request *)
-    ; log : int list (* op_number enties, recieved so far, in their assigned order *)
-    ; commit_number : int (* The most recent commited op_number *)
-    ; client_table : unit
-    (* TODO: This records for each client the number of its most ercent request, plus if the request has been executed, the reusult for that request*)
-    }
-end
-
-let read_exactly connection buffer len =
-  let rec aux offset remaining =
-    if remaining = 0
-    then ()
-    else (
-      let read_now = Eio.Flow.single_read connection buffer in
-      Logs.info (fun f -> f "%s\n" (Cstruct.to_string buffer));
-      aux (offset + read_now) (remaining - read_now))
-  in
-  aux 0 len
-;;
+(* let read_exactly connection buffer len =
+   let rec aux offset remaining =
+   if remaining = 0
+   then ()
+   else (
+   let read_now = Eio.Flow.single_read connection buffer in
+   Logs.info (fun f -> f "%s\n" (Cstruct.to_string buffer));
+   aux (offset + read_now) (remaining - read_now))
+   in
+   aux 0 len
+   ;; *)
 
 let read_message connection =
-  let header = Cstruct.create 4 in
-  read_exactly connection header 4;
-  let payload_size = Int32.to_int_exn (Cstruct.BE.get_uint32 header 0) in
-  (* let payload = B.create payload_size in *)
-  Logs.info (fun f -> f "Bytes: %s, num: %d\n" (Cstruct.to_string header) payload_size)
+  (* let header = Cstruct.create 4 in *)
+  (* read_exactly connection header 4; *)
+  (* print_endline @@ Cstruct.to_string header; *)
+  (* Get message lenght *)
+  (* let reader_len = [%bin_reader: int] in *)
+  (* let msg_len = Bin_prot.Reader.of_bytes reader_len (Cstruct.to_bytes header) in *)
+  let buf = Cstruct.create 100 in
+  (* read_exactly connection buf 5; *)
+  let read_now = Eio.Flow.single_read connection buf in
+  let reader_request = [%bin_reader: Proxy.Request.t] in
+  let request =
+    Bin_prot.Reader.of_bytes reader_request (Cstruct.to_bytes ~len:read_now buf)
+  in
+  Logs.info (fun f ->
+    f
+      "Payload size: %s\n Payload: \n"
+      (Sexp.to_string_hum @@ Proxy.Request.sexp_of_t request))
 ;;
 
 (* read_exactly connection payload payload_size;
@@ -88,15 +77,15 @@ let run_server ~env ~sw ~host ~port =
     Eio.Net.listen ~reuse_addr:true ~sw net (`Tcp (host, port)) ~backlog:1024
   in
   while true do
-    Switch.run
+    Eio.Switch.run
     @@ fun conn_sw ->
     let connection = Eio.Net.accept ~sw:conn_sw socket in
-    Fiber.fork ~sw (fun () -> handle_connection connection)
+    Eio.Fiber.fork ~sw (fun () -> handle_connection connection)
   done
 ;;
 
 let setup_log () =
-  Logs_threaded.enable ();
+  (* Logs_threaded.enable (); *)
   Fmt_tty.setup_std_outputs ();
   Logs.set_level ~all:true (Some Logs.Info);
   Logs.set_reporter (Logs_fmt.reporter ())
@@ -105,7 +94,8 @@ let setup_log () =
 let () =
   Eio_main.run (fun env ->
     setup_log ();
-    Switch.run (fun sw ->
+    Logs.info (fun f -> f "Start Replica..");
+    Eio.Switch.run (fun sw ->
       let host = Eio.Net.Ipaddr.V4.loopback in
       run_server ~env ~sw ~host ~port:8000))
 ;;
