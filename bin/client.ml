@@ -13,18 +13,12 @@ open Vanna
 
 (* Prepend the message length, replica has to know the message size. *)
 let prepare_request req =
-  (* let writer_msg = [%bin_writer: Proxy.Request.t] in
-     let msg = Bin_prot.Writer.to_bytes writer_msg req in
-     print_endline (B.to_string msg);
-     Printf.printf "%d\n" (B.length msg);
-     let writer_len = [%bin_writer: int] in
-     let msg_len = Bin_prot.Writer.to_bytes writer_len (B.length msg) in
-     print_endline (B.to_string msg_len);
-     Printf.printf "%d\n" (B.length msg_len);
-     B.cat msg_len msg *)
   let writer_msg = [%bin_writer: Proxy.Request.t] in
-  let msg = Bin_prot.Writer.to_bytes writer_msg req in
-  msg
+  let msg = Bin_prot.Utils.bin_dump ~header:true writer_msg req in
+  let buf = B.create (Bin_prot.Common.buf_len msg) in
+  Bin_prot.Common.blit_buf_bytes msg ~len:(B.length buf) buf;
+  Logs.info (fun f -> f "Sending %d bytes" (Bin_prot.Common.buf_len msg));
+  buf
 ;;
 
 let run_client ~env ~sw ~host ~port =
@@ -34,10 +28,7 @@ let run_client ~env ~sw ~host ~port =
     { op_number = 0; client_id = 2; request_number = 0; operation = Remove { key = "k" } }
   in
   let msg = prepare_request req in
-  Write.with_flow flow
-  @@ fun to_server ->
-  Write.bytes to_server msg;
-  ()
+  Write.with_flow flow (fun to_server -> Write.bytes to_server msg)
 ;;
 
 let setup_log () =
