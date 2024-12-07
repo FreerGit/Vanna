@@ -10,7 +10,7 @@ module SortedIPList : sig
   val empty : t
 
   (* raises on failure *)
-  val parse_ip_exn : string -> addr
+  val parse_addr_exn : string -> addr
   val add : addr -> t -> t
 
   (* Has no effect if addr is not found *)
@@ -39,7 +39,7 @@ end = struct
     insert lst
   ;;
 
-  let parse_ip_exn ip_str =
+  let parse_addr_exn ip_str =
     let f ip port =
       try
         match Inet_addr.of_string ip, Int.of_string_opt port with
@@ -85,7 +85,7 @@ let%expect_test "tt" =
     ]
   in
   let sorted_addresses =
-    List.fold addresses ~init:empty ~f:(fun acc addr -> add (parse_ip_exn addr) acc)
+    List.fold addresses ~init:empty ~f:(fun acc addr -> add (parse_addr_exn addr) acc)
   in
   let third = List.nth_exn (to_list sorted_addresses) 2 in
   let sorted_addresses = remove third sorted_addresses in
@@ -96,7 +96,9 @@ let%expect_test "tt" =
      (192.168.0.1 8080))
     |}];
   let f ip =
-    print_s @@ sexp_of_option sexp_of_int @@ find_addr (parse_ip_exn ip) sorted_addresses
+    print_s
+    @@ sexp_of_option sexp_of_int
+    @@ find_addr (parse_addr_exn ip) sorted_addresses
   in
   f "127.0.0.1";
   f "127.0.0.1:9090";

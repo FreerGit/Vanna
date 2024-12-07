@@ -1,5 +1,7 @@
 # Vanna
-A distributed KV store using Viewstamped Replication
+A distributed KV store using Viewstamped Replication (VSR), the implemenation is based on the [Viestamped Replication Revisited](https://pmg.csail.mit.edu/papers/vr-revisited.pdf) paper
+
+
 
 
 https://blog.brunobonacci.com/2018/07/15/viewstamped-replication-explained/

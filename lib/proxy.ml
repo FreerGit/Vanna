@@ -10,20 +10,6 @@ module Request = struct
   [@@deriving bin_io, sexp]
 end
 
-module ClientTable = struct
-  module RequstRecord = struct
-    type t =
-      { last_request : int
-      ; last_result : int option (* None implies not executed*)
-      }
-    [@@deriving sexp, hash, compare]
-  end
-
-  type t = (int, RequstRecord.t) Hashtbl.t
-
-  let create () = Hashtbl.create (module Int)
-end
-
 (* let handle_client_request () : ClientTable.t = Hashtbl.create (module Int) *)
 
 (* open Bin_prot.Std

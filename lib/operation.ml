@@ -10,4 +10,5 @@ type t =
       ; value : string
       }
   | Remove of { key : string }
-[@@deriving bin_io, sexp]
+  | Join
+[@@deriving bin_io, sexp, compare]
