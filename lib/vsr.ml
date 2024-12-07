@@ -41,24 +41,41 @@ module Log = struct end
 
 let drop_request () = ()
 let resend_last_response _response = ()
-let handle_request () = ()
 
-let validate_request (ct : ClientTable.t) (r : Proxy.Request.t) =
-  match Hashtbl.find ct r.client_id with
-  | None -> raise_s [%message (sprintf "client %d not in table" r.client_id) [%here]]
-  | Some v ->
-    (match compare r.request_number v.last_request_id with
-     | x when x < 0 -> drop_request ()
-     | 0 ->
-       drop_request ();
-       (match v.last_result with
-        | None -> ()
-        | Some r -> resend_last_response r)
-     | _ -> handle_request ())
+let create_response (state : State.t) (req : Client_protocol.Request.t) =
+  match req.operation with
+  | Join -> Client_protocol.Response.Join { client_id = state.last_client_id }
+  | Add _ -> assert false
+  | Update _ -> assert false
+  | Remove _ -> assert false
 ;;
 
 let add_client (state : State.t) =
   let state' = { state with last_client_id = state.last_client_id + 1 } in
   Utils.log_info (sprintf "Client %d joined" state'.last_client_id);
   state'
+;;
+
+let handle_request (state : State.t) (r : Client_protocol.Request.t) =
+  if Operation.compare r.operation Join = 0
+  then (
+    let state = add_client state in
+    Some (create_response state r))
+  else (
+    match Hashtbl.find state.client_table r.client_id with
+    | None -> raise_s [%message (sprintf "client %d not in table" r.client_id) [%here]]
+    | Some v ->
+      Utils.log_info
+        (sprintf "%d %d" (compare r.request_number v.last_request_id) r.request_number);
+      (match compare r.request_number v.last_request_id with
+       | x when x < 0 ->
+         drop_request ();
+         None
+       | 0 ->
+         drop_request ();
+         (match v.last_result with
+          | None -> ()
+          | Some r -> resend_last_response r);
+         None
+       | _ -> Some (create_response state r)))
 ;;

@@ -1,4 +1,5 @@
 module B = Bytes
+module Write = Eio.Buf_write
 open! Core
 open! Vanna
 
@@ -19,21 +20,34 @@ let init_state ~host ~port : Vsr.State.t =
   }
 ;;
 
+let send_response resp connection =
+  let writer_response = [%bin_writer: Client_protocol.Response.t] in
+  let msg = Bin_prot.Utils.bin_dump ~header:true writer_response resp in
+  let buf = B.create (Bin_prot.Common.buf_len msg) in
+  Bin_prot.Common.blit_buf_bytes msg ~len:(B.length buf) buf;
+  Write.with_flow connection (fun to_server -> Write.bytes to_server buf);
+  Utils.log_info (sprintf "Sent %d bytes" (B.length buf))
+;;
+
 let handle_request state connection =
   let request =
-    let reader_request = [%bin_reader: Proxy.Request.t] in
+    let reader_request = [%bin_reader: Client_protocol.Request.t] in
     Bin_prot.Utils.bin_read_stream reader_request ~read:(fun buf ~pos ~len ->
       let c = Cstruct.create len in
       Eio.Flow.read_exact connection c;
       Bin_prot.Common.blit_bytes_buf ~src_pos:pos (Cstruct.to_bytes c) buf ~len)
   in
-  if Operation.compare request.operation Join = 0
-  then Vsr.add_client state
-  else (
-    Logs.info (fun f ->
-      f "Payload: %s" (Sexp.to_string_hum @@ Proxy.Request.sexp_of_t request));
-    Vsr.validate_request state.client_table request;
-    state)
+  Logs.info (fun f ->
+    f "Payload: %s" (Sexp.to_string_hum @@ Client_protocol.Request.sexp_of_t request));
+  match Vsr.handle_request state request with
+  | None -> state
+  | Some resp ->
+    send_response resp connection;
+    state
+;;
+
+let on_error e =
+  Logs.err (fun f -> f "%s\n%s" (Exn.to_string e) (Printexc.get_backtrace ()))
 ;;
 
 let run_server ~env ~sw ~host ~port =
@@ -43,9 +57,7 @@ let run_server ~env ~sw ~host ~port =
     Eio.Net.listen ~reuse_addr:true ~sw net (`Tcp (host, port)) ~backlog:1024
   in
   let rec server_loop state =
-    let connection = Eio.Net.accept ~sw socket in
-    Eio.Fiber.fork ~sw (fun () ->
-      let connection, _ = connection in
+    Eio.Net.accept_fork ~sw ~on_error socket (fun connection _ ->
       let state' = handle_request state connection in
       server_loop state')
   in
@@ -60,13 +72,10 @@ let setup_log () =
 ;;
 
 let () =
-  try
-    Eio_main.run (fun env ->
-      setup_log ();
-      Logs.info (fun f -> f "Start Replica..");
-      Eio.Switch.run (fun sw ->
-        let host = Eio.Net.Ipaddr.V4.loopback in
-        run_server ~env ~sw ~host ~port:8000))
-  with
-  | exn -> Logs.err (fun f -> f "%s\n%s" (Exn.to_string exn) (Printexc.get_backtrace ()))
+  Eio_main.run (fun env ->
+    setup_log ();
+    Logs.info (fun f -> f "Start Replica..");
+    Eio.Switch.run (fun sw ->
+      let host = Eio.Net.Ipaddr.V4.loopback in
+      run_server ~env ~sw ~host ~port:8000))
 ;;

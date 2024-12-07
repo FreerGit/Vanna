@@ -1,6 +1,6 @@
 open! Core
 
-module Request = struct
+(* module Request = struct
   type t =
     { op_number : int
     ; client_id : int
@@ -8,7 +8,7 @@ module Request = struct
     ; operation : Operation.t
     }
   [@@deriving bin_io, sexp]
-end
+end *)
 
 (* let handle_client_request () : ClientTable.t = Hashtbl.create (module Int) *)
 
