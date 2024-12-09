@@ -45,18 +45,23 @@ let resend_last_response _response = ()
 let create_response (state : State.t) (req : Client_protocol.Request.t) =
   match req.operation with
   | Join -> Client_protocol.Response.Join { client_id = state.last_client_id }
-  | Add _ -> assert false
+  | Add _ -> Client_protocol.Response.Add { done_todo = true }
   | Update _ -> assert false
   | Remove _ -> assert false
 ;;
 
 let add_client (state : State.t) =
-  let state' = { state with last_client_id = state.last_client_id + 1 } in
-  Utils.log_info (sprintf "Client %d joined" state'.last_client_id);
-  state'
+  let state = { state with last_client_id = state.last_client_id + 1 } in
+  Hashtbl.add_exn
+    state.client_table
+    ~key:state.last_client_id
+    ~data:{ last_request_id = 0; last_result = None };
+  Utils.log_info (sprintf "Client %d joined" state.last_client_id);
+  state
 ;;
 
 let handle_request (state : State.t) (r : Client_protocol.Request.t) =
+  Utils.log_info "handle_request";
   if Operation.compare r.operation Join = 0
   then (
     let state = add_client state in
