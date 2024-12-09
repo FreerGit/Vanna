@@ -51,17 +51,22 @@ let on_error e =
 ;;
 
 let run_server ~env ~sw ~host ~port =
-  let state = init_state ~host:(Fmt.str "%a" Eio.Net.Ipaddr.pp host) ~port in
+  let state = ref @@ init_state ~host:(Fmt.str "%a" Eio.Net.Ipaddr.pp host) ~port in
   let net = Eio.Stdenv.net env in
   let socket =
     Eio.Net.listen ~reuse_addr:true ~sw net (`Tcp (host, port)) ~backlog:1024
   in
-  let rec server_loop state =
+  while true do
     Eio.Net.accept_fork ~sw ~on_error socket (fun connection _ ->
-      let state' = handle_request state connection in
-      server_loop state')
-  in
-  server_loop state
+      let rec continue () =
+        try
+          state := handle_request !state connection;
+          continue ()
+        with
+        | End_of_file | Core_unix.Unix_error _ -> Utils.log_info "Closed | Unix_error"
+      in
+      continue ())
+  done
 ;;
 
 let setup_log () =

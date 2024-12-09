@@ -19,7 +19,12 @@ https://dspace.mit.edu/bitstream/handle/1721.1/71763/MIT-CSAIL-TR-2012-021.pdf?s
 
 ## Things to ponder upon
 
+TODO uninstall forticlient and thinlinc
+
+### Client id
 Right now there can be {0..uint32_max} clients, the client must keep track of the client id from the response. There is no way to remove clients from the table at this point, I could set a timeout on each entry? That would require the client to also know abou that timeout however, since it would need to send a new Join mesasge to get a new id. 
+
+I could also just have the client generate a uuid and then do a join, if the uuid already exist (highly unlikely), then just generate a new one.
 
 ## Clients
 have a unique id (client_id), and they communcate only with the primary.
