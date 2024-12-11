@@ -1,9 +1,10 @@
 (executables
- (public_names replica client)
- (names replica client)
+ (public_names cli)
+ (names cli)
  (libraries
   vanna
   core
+  core_unix.command_unix
   bytes
   eio
   eio_main

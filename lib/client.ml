@@ -2,9 +2,6 @@ module B = Bytes
 module Write = Eio.Buf_write
 open! Core
 
-(* open Eio.Std *)
-open Vanna
-
 let build_request req =
   let writer_msg = [%bin_writer: Client_protocol.Request.t] in
   let msg = Bin_prot.Utils.bin_dump ~header:true writer_msg req in
@@ -54,7 +51,7 @@ let setup_log () =
   Logs.set_reporter (Logs_fmt.reporter ())
 ;;
 
-let () =
+let start () =
   setup_log ();
   Logs.info (fun f -> f "Start Client..");
   Eio_main.run (fun env ->
