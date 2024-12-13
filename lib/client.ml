@@ -2,6 +2,13 @@ module B = Bytes
 module Write = Eio.Buf_write
 open! Core
 
+module State = struct
+  type t =
+    { client_id : int
+    ; request_number : int
+    }
+end
+
 let build_request req =
   let writer_msg = [%bin_writer: Client_protocol.Request.t] in
   let msg = Bin_prot.Utils.bin_dump ~header:true writer_msg req in
@@ -18,15 +25,36 @@ let read_response connection =
     Bin_prot.Common.blit_bytes_buf ~src_pos:pos (Cstruct.to_bytes c) buf ~len)
 ;;
 
-let run_client ~env ~sw ~host ~port =
+(* TODO client state *)
+let run_client ~f ~env ~sw ~host ~port =
   let net = Eio.Stdenv.net env in
   let connection = Eio.Net.connect ~sw net (`Tcp (host, port)) in
-  let join_network_request : Client_protocol.Request.t =
+  let continue = ref true in
+  let state = ref State.{ client_id = 0; request_number = 0 } in
+  while !continue do
+    let command = f !state in
+    (* state := state'; *)
+    match command with
+    | None -> continue := false
+    | Some r ->
+      let req = build_request r in
+      Write.with_flow connection (fun to_server -> Write.bytes to_server req);
+      let resp = read_response connection in
+      (match resp with
+       | Join x ->
+         state := { client_id = x.client_id; request_number = !state.request_number + 1 }
+       | Add _ -> ());
+      Logs.info (fun f ->
+        f "Payload: %s" (Sexp.to_string_hum @@ Client_protocol.Response.sexp_of_t resp))
+  done
+;;
+
+(* let join_network_request : Client_protocol.Request.t =
     { client_id = 0; request_number = 0; operation = Join }
-  in
-  let request = build_request join_network_request in
-  Write.with_flow connection (fun to_server -> Write.bytes to_server request);
-  let join_resp = read_response connection in
+  in *)
+(* let request = build_request join_network_request in *)
+(* Write.with_flow connection (fun to_server -> Write.bytes to_server request); *)
+(* let join_resp = read_response connection in
   Logs.info (fun f ->
     f "Payload: %s" (Sexp.to_string_hum @@ Client_protocol.Response.sexp_of_t join_resp));
   match join_resp with
@@ -41,8 +69,7 @@ let run_client ~env ~sw ~host ~port =
     Utils.log_info "here";
     Logs.info (fun f ->
       f "Payload: %s" (Sexp.to_string_hum @@ Client_protocol.Response.sexp_of_t response))
-  | _ -> raise_s [%message "idk"]
-;;
+  | _ -> raise_s [%message "idk"] *)
 
 let setup_log () =
   Logs_threaded.enable ();
@@ -51,12 +78,12 @@ let setup_log () =
   Logs.set_reporter (Logs_fmt.reporter ())
 ;;
 
-let start () =
+let start ~f =
   setup_log ();
   Logs.info (fun f -> f "Start Client..");
   Eio_main.run (fun env ->
     Eio.Switch.run (fun sw ->
       let host = Eio.Net.Ipaddr.V4.loopback in
       let port = 8000 in
-      run_client ~env ~sw ~host ~port))
+      run_client ~f ~env ~sw ~host ~port))
 ;;

@@ -13,5 +13,5 @@ module Response = struct
   type t =
     | Join of { client_id : int }
     | Add of { done_todo : bool }
-  [@@deriving bin_io, sexp]
+  [@@deriving bin_io, sexp, compare]
 end
