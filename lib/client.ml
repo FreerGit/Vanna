@@ -18,9 +18,9 @@ let read_response connection =
 ;;
 
 (* TODO client state *)
-let run_client ~f ~env ~sw ~host ~port =
+let run_client ~f ~env ~sw ~addr =
   let net = Eio.Stdenv.net env in
-  let connection = Eio.Net.connect ~sw net (`Tcp (host, port)) in
+  let connection = Eio.Net.connect ~sw net (`Tcp addr) in
   let continue = ref true in
   let state = ref State.{ client_id = 0; request_number = 0 } in
   while !continue do
@@ -70,12 +70,8 @@ let setup_log () =
   Logs.set_reporter (Logs_fmt.reporter ())
 ;;
 
-let start ~f =
+let start ~addr ~f =
   setup_log ();
   Logs.info (fun f -> f "Start Client..");
-  Eio_main.run (fun env ->
-    Eio.Switch.run (fun sw ->
-      let host = Eio.Net.Ipaddr.V4.loopback in
-      let port = 8000 in
-      run_client ~f ~env ~sw ~host ~port))
+  Eio_main.run (fun env -> Eio.Switch.run (fun sw -> run_client ~f ~env ~sw ~addr))
 ;;

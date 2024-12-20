@@ -12,7 +12,7 @@ jobs:
       - name: Set up OCaml
         uses: avsm/setup-ocaml@v1
         with:
-          ocaml-version: 5.2.0
+          ocaml-version: 5.2.1
           
       - name: Run tests
         run: |

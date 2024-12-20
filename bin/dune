@@ -1,6 +1,7 @@
 (executables
  (public_names cli)
  (names cli)
+ (promote (until-clean) (into ../))
  (libraries
   vanna
   core

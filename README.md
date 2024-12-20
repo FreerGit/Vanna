@@ -17,6 +17,8 @@ https://dspace.mit.edu/bitstream/handle/1721.1/71763/MIT-CSAIL-TR-2012-021.pdf?s
 * An option is json, slow but simple and all languages has good eco support.
 * Simply use bin_prot, downside of ocaml only.
 * Another option is protobuf, a bif faster than json and decent eco support.
+* I could write everything in OCaml, write a C wrapper that calls into OCaml, then have various languages FFI the c code 
+    * This option seems like pain, mostly due to wrapping the error handling between OCaml and C
 
 **_IF_ I go down the multiple client route, do I write it in C to let others wrap it?**
 * I would like a C99 client anyway so I guess it make sense.

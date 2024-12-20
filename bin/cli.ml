@@ -43,8 +43,8 @@ let get_command (state : Client.State.t) =
   | Some input -> parse_command input state
 ;;
 
-let start_client_with_stdin () =
-  Client.start ~f:(fun state ->
+let start_client_with_stdin addr =
+  Client.start ~addr ~f:(fun state ->
     Utils.log_info "Client started. Enter commands:\n";
     get_command state)
 ;;
@@ -69,8 +69,12 @@ let commands =
     [ ( "run-client"
       , Command.basic
           ~summary:"Run a client"
-          (let%map_open.Command () = return () in
-           fun () -> start_client_with_stdin ()) )
+          (let%map_open.Command primary =
+             flag "primary" (required string) ~doc:"string Address to primary"
+           in
+           fun () ->
+             let addr = Vanna.Configuration.SortedIPList.parse_addr_exn primary in
+             start_client_with_stdin addr) )
     ; ( "run-replica"
       , Command.basic
           ~summary:"Run a replica"
