@@ -1,10 +1,6 @@
 # Vanna
 A distributed KV store using Viewstamped Replication (VSR), the implemenation is based on the [Viestamped Replication Revisited](https://pmg.csail.mit.edu/papers/vr-revisited.pdf) paper
 
-
-
-make sure replica <-> replica comms work
-
 create prepare
 
 create prepareOk

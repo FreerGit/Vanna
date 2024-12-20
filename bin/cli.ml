@@ -17,7 +17,7 @@ let add_command =
        request := { client_id = 1; request_number = 1; operation = Add { key; value } })
 ;; *)
 
-let parse_command input (state : Client.State.t) : Message.Client_request.t option =
+let parse_command input (state : Client.State.t) : Message.t option =
   let command : Message.Client_request.t =
     { client_id = state.client_id
     ; request_number = state.request_number
@@ -25,10 +25,13 @@ let parse_command input (state : Client.State.t) : Message.Client_request.t opti
     }
   in
   match String.split ~on:' ' input with
-  | [ "Join" ] -> Some { command with operation = Join }
-  | [ "Add"; key; value ] -> Some { command with operation = Add { key; value } }
-  | [ "Update"; key; value ] -> Some { command with operation = Update { key; value } }
-  | [ "Remove"; key ] -> Some { command with operation = Remove { key } }
+  | [ "Join" ] -> Some (Message.Client_request { command with operation = Join })
+  | [ "Add"; key; value ] ->
+    Some (Message.Client_request { command with operation = Add { key; value } })
+  | [ "Update"; key; value ] ->
+    Some (Message.Client_request { command with operation = Update { key; value } })
+  | [ "Remove"; key ] ->
+    Some (Message.Client_request { command with operation = Remove { key } })
   | _ -> None
 ;;
 
@@ -46,6 +49,20 @@ let start_client_with_stdin () =
     get_command state)
 ;;
 
+let get_ip_list s =
+  let open Configuration.SortedIPList in
+  let addrs = String.split_on_chars s ~on:[ ',' ] in
+  List.fold addrs ~init:empty ~f:(fun acc addr -> add (parse_addr_exn addr) acc)
+;;
+
+let get_replica_addr s replica =
+  let addrs = String.split_on_chars s ~on:[ ',' ] in
+  match List.nth addrs replica with
+  | None ->
+    raise_s [%message "Replica index is out of range (addresses list)" ~here:[%here]]
+  | Some addr -> Vanna.Configuration.SortedIPList.parse_addr_exn addr
+;;
+
 let commands =
   Command.group
     ~summary:"Client or Replica node"
@@ -57,8 +74,15 @@ let commands =
     ; ( "run-replica"
       , Command.basic
           ~summary:"Run a replica"
-          (let%map_open.Command () = return () in
-           fun () -> Replica.start ()) )
+          (let%map_open.Command addresses =
+             flag "addresses" (required string) ~doc:"string All Adresses"
+           and replica =
+             flag "replica" (required int) ~doc:"int This replicas index into addresses"
+           in
+           fun () ->
+             let replica_address = get_replica_addr addresses replica in
+             let addresses = get_ip_list addresses in
+             Replica.start addresses replica_address) )
     ]
 ;;
 

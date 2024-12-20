@@ -28,6 +28,7 @@ end
 module State = struct
   type t =
     { configuration : Configuration.SortedIPList.t
+      (* TODO: make sure that the invariant holds for the index when updating config. *)
     ; replica_number : int (* This is the index into its IP in configuration *)
     ; view_number : int (* Initially 0 *)
     ; status : Status.t
@@ -37,6 +38,8 @@ module State = struct
     ; client_table : ClientTable.t
     ; last_client_id : int (* Last client that joined the network, not in paper *)
     }
+
+  let get_primary s = s.view_number % Configuration.SortedIPList.length s.configuration
 end
 
 module Log = struct end
@@ -52,6 +55,15 @@ let create_response (state : State.t) (req : Message.Client_request.t) =
   | Remove _ -> assert false
 ;;
 
+let send_message resp connection =
+  let writer_response = [%bin_writer: Message.t] in
+  let msg = Bin_prot.Utils.bin_dump ~header:true writer_response resp in
+  let buf = B.create (Bin_prot.Common.buf_len msg) in
+  Bin_prot.Common.blit_buf_bytes msg ~len:(B.length buf) buf;
+  Write.with_flow connection (fun to_server -> Write.bytes to_server buf);
+  Utils.log_info (sprintf "Sent %d bytes" (B.length buf))
+;;
+
 let add_client (state : State.t) =
   let state = { state with last_client_id = state.last_client_id + 1 } in
   Hashtbl.add_exn
@@ -60,6 +72,26 @@ let add_client (state : State.t) =
     ~data:{ last_request_id = 0; last_result = None };
   Utils.log_info (sprintf "Client %d joined" state.last_client_id);
   state
+;;
+
+(* let wait_for_prepare_ok ~ip ~prepare = () *)
+
+let send_prepare ~sw ~env (state : State.t) client_msg =
+  let ips = Configuration.SortedIPList.to_list state.configuration in
+  let primary_i = State.get_primary state in
+  let non_primary = List.filteri ips ~f:(fun i _ -> not (Int.equal i primary_i)) in
+  let prepare =
+    Message.Replica_message.Prepare
+      { view_number = 0; message = client_msg; op_number = 0; commit_number = 0 }
+  in
+  let send_to_replica addr =
+    let host, port = addr in
+    let net = Eio.Stdenv.net env in
+    let connection = Eio.Net.connect ~sw net (`Tcp (host, port)) in
+    let req = Message.to_bytes (Message.Replica_message prepare) in
+    Write.with_flow connection (fun to_server -> Write.bytes to_server req)
+  in
+  Eio.Fiber.all (List.map ~f:(fun addr _ -> send_to_replica addr) non_primary)
 ;;
 
 let handle_request (state : State.t) (r : Message.Client_request.t) =
@@ -87,11 +119,10 @@ let handle_request (state : State.t) (r : Message.Client_request.t) =
        | _ -> Some (create_response state r)))
 ;;
 
-let init_state ~host ~port : State.t =
+let init_state ~addresses ~replica_address : State.t =
   let module IPs = Configuration.SortedIPList in
-  let addr = IPs.parse_addr_exn (String.concat [ host; ":"; string_of_int port ]) in
-  let configuration = IPs.add addr IPs.empty in
-  let replica_number = IPs.find_addr addr configuration |> Option.value_exn in
+  let configuration = addresses in
+  let replica_number = IPs.find_addr replica_address configuration |> Option.value_exn in
   { configuration
   ; replica_number
   ; view_number = 0
@@ -102,15 +133,6 @@ let init_state ~host ~port : State.t =
   ; client_table = ClientTable.create ()
   ; last_client_id = 0
   }
-;;
-
-let send_response resp connection =
-  let writer_response = [%bin_writer: Message.Client_response.t] in
-  let msg = Bin_prot.Utils.bin_dump ~header:true writer_response resp in
-  let buf = B.create (Bin_prot.Common.buf_len msg) in
-  Bin_prot.Common.blit_buf_bytes msg ~len:(B.length buf) buf;
-  Write.with_flow connection (fun to_server -> Write.bytes to_server buf);
-  Utils.log_info (sprintf "Sent %d bytes" (B.length buf))
 ;;
 
 let parse_request connection =
@@ -129,7 +151,7 @@ let handle_request state connection =
   match handle_request state request with
   | None -> state
   | Some resp ->
-    send_response resp connection;
+    send_message (Message.Client_response resp) connection;
     state
 ;;
 
@@ -137,14 +159,14 @@ let on_error e =
   Logs.err (fun f -> f "%s\n%s" (Exn.to_string e) (Printexc.get_backtrace ()))
 ;;
 
-let run_server ~env ~sw ~host ~port =
+let run_replica ~env ~sw addresses replica_address =
   let net = Eio.Stdenv.net env in
   let socket =
-    Eio.Net.listen ~reuse_addr:true ~sw net (`Tcp (host, port)) ~backlog:1024
+    Eio.Net.listen ~reuse_addr:true ~sw net (`Tcp replica_address) ~backlog:1024
   in
   while true do
     Eio.Net.accept_fork ~sw ~on_error socket (fun connection _ ->
-      let state = init_state ~host:(Fmt.str "%a" Eio.Net.Ipaddr.pp host) ~port in
+      let state = init_state ~addresses ~replica_address in
       let rec continue state =
         try handle_request state connection |> continue with
         | End_of_file | Core_unix.Unix_error _ -> Utils.log_info "Closed | Unix_error"
@@ -153,18 +175,14 @@ let run_server ~env ~sw ~host ~port =
   done
 ;;
 
-let setup_log () =
-  (* Logs_threaded.enable (); *)
-  Fmt_tty.setup_std_outputs ();
-  Logs.set_level ~all:true (Some Logs.Info);
-  Logs.set_reporter (Logs_fmt.reporter ())
-;;
-
-let start () =
+let start addresses replica_address =
+  Utils.setup_log ();
+  Utils.log_info_sexp
+    [%message
+      ""
+        (sprintf
+           !"Starting replica on %{sexp:Configuration.SortedIPList.addr}"
+           replica_address)];
   Eio_main.run (fun env ->
-    setup_log ();
-    Logs.info (fun f -> f "Start Replica..");
-    Eio.Switch.run (fun sw ->
-      let host = Eio.Net.Ipaddr.V4.loopback in
-      run_server ~env ~sw ~host ~port:8000))
+    Eio.Switch.run (fun sw -> run_replica ~env ~sw addresses replica_address))
 ;;

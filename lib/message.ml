@@ -1,4 +1,5 @@
 open! Core
+module B = Bytes
 
 module Client_request = struct
   type t =
@@ -18,7 +19,7 @@ end
 
 module Replica_message = struct
   type t =
-    | Preapre of
+    | Prepare of
         { view_number : int
         ; message : Client_request.t
         ; op_number : int
@@ -33,9 +34,16 @@ module Replica_message = struct
 end
 (* | Reply of { view_number: int; } *)
 
-module Message = struct
-  type t =
-    | Client_request of Client_request.t
-    | Replica_message of Replica_message.t
-  [@@deriving bin_io, sexp]
-end
+type t =
+  | Client_request of Client_request.t
+  | Client_response of Client_response.t
+  | Replica_message of Replica_message.t
+[@@deriving bin_io, sexp]
+
+let to_bytes req =
+  let writer_msg = [%bin_writer: t] in
+  let msg = Bin_prot.Utils.bin_dump ~header:true writer_msg req in
+  let buf = B.create (Bin_prot.Common.buf_len msg) in
+  Bin_prot.Common.blit_buf_bytes msg ~len:(B.length buf) buf;
+  buf
+;;

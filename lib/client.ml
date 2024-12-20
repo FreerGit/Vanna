@@ -9,14 +9,6 @@ module State = struct
     }
 end
 
-let build_request req =
-  let writer_msg = [%bin_writer: Message.Client_request.t] in
-  let msg = Bin_prot.Utils.bin_dump ~header:true writer_msg req in
-  let buf = B.create (Bin_prot.Common.buf_len msg) in
-  Bin_prot.Common.blit_buf_bytes msg ~len:(B.length buf) buf;
-  buf
-;;
-
 let read_response connection =
   let reader_response = [%bin_reader: Message.Client_response.t] in
   Bin_prot.Utils.bin_read_stream reader_response ~read:(fun buf ~pos ~len ->
@@ -37,7 +29,7 @@ let run_client ~f ~env ~sw ~host ~port =
     match command with
     | None -> continue := false
     | Some r ->
-      let req = build_request r in
+      let req = Message.to_bytes r in
       Write.with_flow connection (fun to_server -> Write.bytes to_server req);
       let resp = read_response connection in
       (match resp with
