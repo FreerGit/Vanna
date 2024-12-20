@@ -3,6 +3,15 @@ A distributed KV store using Viewstamped Replication (VSR), the implemenation is
 
 
 
+make sure replica <-> replica comms work
+
+create prepare
+
+create prepareOk
+
+create reply
+
+at this point the distributed KV store _should_ work under _normal_ conditions
 
 https://blog.brunobonacci.com/2018/07/15/viewstamped-replication-explained/
 https://dspace.mit.edu/bitstream/handle/1721.1/71763/MIT-CSAIL-TR-2012-021.pdf?sequence=1&isAllowed=y

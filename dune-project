@@ -5,13 +5,13 @@
 (generate_opam_files true)
 
 (source
- (github username/reponame))
+ (github Freergit/vanna))
 
-(authors "Author Name")
+(authors "Sven")
 
-(maintainers "Maintainer Name")
+(maintainers "Sven")
 
-(license LICENSE)
+(license MIT)
 
 (documentation https://url/to/documentation)
 
@@ -25,7 +25,6 @@
   core
   core_unix
   yojson
-  bytes
   logs
   fmt
   bin_prot
@@ -39,6 +38,7 @@
   ppx_sexp_message
   ppx_yojson_conv
   ppx_bin_prot
+  ppx_deriving
   eio
   eio_main
   piaf

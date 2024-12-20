@@ -44,10 +44,10 @@ module Log = struct end
 let drop_request () = ()
 let resend_last_response _response = ()
 
-let create_response (state : State.t) (req : Client_protocol.Request.t) =
+let create_response (state : State.t) (req : Message.Client_request.t) =
   match req.operation with
-  | Join -> Client_protocol.Response.Join { client_id = state.last_client_id }
-  | Add _ -> Client_protocol.Response.Add { done_todo = true }
+  | Join -> Message.Client_response.Join { client_id = state.last_client_id }
+  | Add _ -> Message.Client_response.Add { done_todo = true }
   | Update _ -> assert false
   | Remove _ -> assert false
 ;;
@@ -62,7 +62,7 @@ let add_client (state : State.t) =
   state
 ;;
 
-let handle_request (state : State.t) (r : Client_protocol.Request.t) =
+let handle_request (state : State.t) (r : Message.Client_request.t) =
   Utils.log_info "handle_request";
   if Operation.compare r.operation Join = 0
   then (
@@ -105,7 +105,7 @@ let init_state ~host ~port : State.t =
 ;;
 
 let send_response resp connection =
-  let writer_response = [%bin_writer: Client_protocol.Response.t] in
+  let writer_response = [%bin_writer: Message.Client_response.t] in
   let msg = Bin_prot.Utils.bin_dump ~header:true writer_response resp in
   let buf = B.create (Bin_prot.Common.buf_len msg) in
   Bin_prot.Common.blit_buf_bytes msg ~len:(B.length buf) buf;
@@ -113,16 +113,19 @@ let send_response resp connection =
   Utils.log_info (sprintf "Sent %d bytes" (B.length buf))
 ;;
 
+let parse_request connection =
+  let reader_request = [%bin_reader: Message.Client_request.t] in
+  Bin_prot.Utils.bin_read_stream reader_request ~read:(fun buf ~pos ~len ->
+    let c = Cstruct.create len in
+    Eio.Flow.read_exact connection c;
+    Bin_prot.Common.blit_bytes_buf ~src_pos:pos (Cstruct.to_bytes c) buf ~len)
+;;
+
 let handle_request state connection =
-  let request =
-    let reader_request = [%bin_reader: Client_protocol.Request.t] in
-    Bin_prot.Utils.bin_read_stream reader_request ~read:(fun buf ~pos ~len ->
-      let c = Cstruct.create len in
-      Eio.Flow.read_exact connection c;
-      Bin_prot.Common.blit_bytes_buf ~src_pos:pos (Cstruct.to_bytes c) buf ~len)
-  in
+  let request = parse_request connection in
   Logs.info (fun f ->
-    f "Payload: %s" (Sexp.to_string_hum @@ Client_protocol.Request.sexp_of_t request));
+    f "Payload: %s" (Sexp.to_string_hum @@ Message.Client_request.sexp_of_t request));
+  (* state *)
   match handle_request state request with
   | None -> state
   | Some resp ->
@@ -135,21 +138,18 @@ let on_error e =
 ;;
 
 let run_server ~env ~sw ~host ~port =
-  let state = ref @@ init_state ~host:(Fmt.str "%a" Eio.Net.Ipaddr.pp host) ~port in
   let net = Eio.Stdenv.net env in
   let socket =
     Eio.Net.listen ~reuse_addr:true ~sw net (`Tcp (host, port)) ~backlog:1024
   in
   while true do
     Eio.Net.accept_fork ~sw ~on_error socket (fun connection _ ->
-      let rec continue () =
-        try
-          state := handle_request !state connection;
-          continue ()
-        with
+      let state = init_state ~host:(Fmt.str "%a" Eio.Net.Ipaddr.pp host) ~port in
+      let rec continue state =
+        try handle_request state connection |> continue with
         | End_of_file | Core_unix.Unix_error _ -> Utils.log_info "Closed | Unix_error"
       in
-      continue ())
+      continue state)
   done
 ;;
 

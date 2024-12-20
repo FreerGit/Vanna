@@ -17,8 +17,8 @@ let add_command =
        request := { client_id = 1; request_number = 1; operation = Add { key; value } })
 ;; *)
 
-let parse_command input (state : Client.State.t) : Client_protocol.Request.t option =
-  let command : Client_protocol.Request.t =
+let parse_command input (state : Client.State.t) : Message.Client_request.t option =
+  let command : Message.Client_request.t =
     { client_id = state.client_id
     ; request_number = state.request_number
     ; operation = Join

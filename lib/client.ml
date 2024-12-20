@@ -10,7 +10,7 @@ module State = struct
 end
 
 let build_request req =
-  let writer_msg = [%bin_writer: Client_protocol.Request.t] in
+  let writer_msg = [%bin_writer: Message.Client_request.t] in
   let msg = Bin_prot.Utils.bin_dump ~header:true writer_msg req in
   let buf = B.create (Bin_prot.Common.buf_len msg) in
   Bin_prot.Common.blit_buf_bytes msg ~len:(B.length buf) buf;
@@ -18,7 +18,7 @@ let build_request req =
 ;;
 
 let read_response connection =
-  let reader_response = [%bin_reader: Client_protocol.Response.t] in
+  let reader_response = [%bin_reader: Message.Client_response.t] in
   Bin_prot.Utils.bin_read_stream reader_response ~read:(fun buf ~pos ~len ->
     let c = Cstruct.create len in
     Eio.Flow.read_exact connection c;
@@ -45,7 +45,7 @@ let run_client ~f ~env ~sw ~host ~port =
          state := { client_id = x.client_id; request_number = !state.request_number + 1 }
        | Add _ -> ());
       Logs.info (fun f ->
-        f "Payload: %s" (Sexp.to_string_hum @@ Client_protocol.Response.sexp_of_t resp))
+        f "Payload: %s" (Sexp.to_string_hum @@ Message.Client_response.sexp_of_t resp))
   done
 ;;
 
