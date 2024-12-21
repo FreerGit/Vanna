@@ -50,7 +50,7 @@ let start_client_with_stdin addr =
 ;;
 
 let get_ip_list s =
-  let open Configuration.SortedIPList in
+  let open Configuration in
   let addrs = String.split_on_chars s ~on:[ ',' ] in
   List.fold addrs ~init:empty ~f:(fun acc addr -> add (parse_addr_exn addr) acc)
 ;;
@@ -60,7 +60,7 @@ let get_replica_addr s replica =
   match List.nth addrs replica with
   | None ->
     raise_s [%message "Replica index is out of range (addresses list)" ~here:[%here]]
-  | Some addr -> Vanna.Configuration.SortedIPList.parse_addr_exn addr
+  | Some addr -> Vanna.Configuration.parse_addr_exn addr
 ;;
 
 let commands =
@@ -73,7 +73,7 @@ let commands =
              flag "primary" (required string) ~doc:"string Address to primary"
            in
            fun () ->
-             let addr = Vanna.Configuration.SortedIPList.parse_addr_exn primary in
+             let addr = Vanna.Configuration.parse_addr_exn primary in
              start_client_with_stdin addr) )
     ; ( "run-replica"
       , Command.basic

@@ -1,6 +1,28 @@
 # Vanna
 A distributed KV store using Viewstamped Replication (VSR), the implemenation is based on the [Viestamped Replication Revisited](https://pmg.csail.mit.edu/papers/vr-revisited.pdf) paper
 
+## TODOs
+
+The primary must have a queue for client requests, if the primary is waiting for PrepareOk messages and get a new client request in the middle of it (just reading from the socket). Then it has to be put on a queue to get handled later on.
+
+The above also means that the client has to maintain a queue and potentially retry the requests in case the primary faults when it has requests in its queue.
+
+**Handle log - when should priamry/replicas add to log?
+1. C1 -> R1: REQUEST(op=PUT x 5, c=client1, s=1)
+2. R1: 
+   - Adds to log at op-number=1
+   - Sends PREPARE(v=1, m=REQUEST, n=1, k=0) to R2,R3
+
+3. R2 and R3:
+   - Add to log at op-number=1
+   - Send PREPAREOK(v=1, n=1) to R1
+
+4. R1:
+   - Gets 2 PREPAREOK messages
+   - Executes PUT x=5 in its k-v store
+   - Updates commit-number to 1
+   - Sends REPLY to C1
+
 create prepare
 
 create prepareOk
@@ -22,7 +44,6 @@ https://dspace.mit.edu/bitstream/handle/1721.1/71763/MIT-CSAIL-TR-2012-021.pdf?s
 
 **_IF_ I go down the multiple client route, do I write it in C to let others wrap it?**
 * I would like a C99 client anyway so I guess it make sense.
-
 
 ## Things to ponder upon
 

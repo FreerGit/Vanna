@@ -28,7 +28,7 @@ module Replica_message = struct
     | PrepareOk of
         { view_number : int
         ; op_number : int
-        ; client_id : int
+        ; replica_number : int
         }
   [@@deriving bin_io, sexp]
 end
