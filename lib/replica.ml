@@ -25,7 +25,17 @@ module ClientTable = struct
 end
 
 (* TODO: This records for each client the number of its most ercent request, plus if the request has been executed, the reusult for that request*)
+(* TODO: Reason about performance, should not be problem, could just use mutable if need be. *)
 module State = struct
+  module Log = struct
+    type entry =
+      { op : Operation.t
+      ; op_number : int
+      }
+
+    type t = entry Queue.t
+  end
+
   type t =
     { configuration : Configuration.t
       (* TODO: make sure that the invariant holds for the index when updating config. *)
@@ -33,16 +43,25 @@ module State = struct
     ; view_number : int (* Initially 0 *)
     ; status : Status.t
     ; op_number : int (* Initially 0, the most recently recieved request *)
-    ; log : int list (* op_number enties, recieved so far, in their assigned order *)
+    ; log : Log.t (* Ordered list of operations *)
     ; commit_number : int (* The most recent commited op_number *)
     ; client_table : ClientTable.t
     ; last_client_id : int (* Last client that joined the network, not in paper *)
     }
 
   let get_primary s = s.view_number % Configuration.length s.configuration
-end
+  let is_primary s = Int.equal s.replica_number (get_primary s)
 
-module Log = struct end
+  (**     
+     Advances op_number, then appends entry to log.
+  *)
+  let enqueue_log state (op : Operation.t) =
+    let state = { state with op_number = state.op_number + 1 } in
+    let entry = Log.{ op; op_number = state.op_number } in
+    Queue.enqueue state.log entry;
+    state
+  ;;
+end
 
 let drop_request () = ()
 let resend_last_response _response = ()
@@ -134,7 +153,7 @@ let init_state ~addresses ~replica_address : State.t =
   ; view_number = 0
   ; status = Status.Normal
   ; op_number = 0
-  ; log = []
+  ; log = Queue.create ()
   ; commit_number = 0
   ; client_table = ClientTable.create ()
   ; last_client_id = 0
@@ -153,19 +172,8 @@ let receive_message connection =
   msg
 ;;
 
-(* let handle_client_request ~sw ~env state r =
-  Logs.info (fun f ->
-    f "Client req: %s" (Sexp.to_string_hum @@ Message.Client_request.sexp_of_t r));
-  if Operation.compare r.operation Join = 0
-  then (
-    let state = send_prepare ~sw ~env state r in
-    let state = add_client state in
-    Some (create_response state r))
-  else raise_s [%message "TODO: only join" ~here:[%here]]
-;; *)
-
 let do_consensus ~sw ~env (state : State.t) client_req =
-  assert (Int.equal state.replica_number (State.get_primary state));
+  assert (State.is_primary state);
   let state, connections = send_prepare_to_backups ~sw ~env state client_req in
   let majority = (Configuration.length state.configuration / 2) + 1 in
   let prepare_ok_count = ref 0 in
@@ -189,24 +197,27 @@ let handle_message ~sw ~env (state : State.t) connection =
   let request = receive_message connection in
   (match request with
    | Message.Client_request req ->
-     let is_primary = Int.equal state.replica_number (State.get_primary state) in
-     (match is_primary with
+     (match State.is_primary state with
       | false ->
         raise_s [%message "TODO: A non priary replica got client req..?" ~here:[%here]]
-      | true -> do_consensus ~sw ~env state req)
+      | true ->
+        let state = State.enqueue_log state req.operation in
+        do_consensus ~sw ~env state req)
    (* (match handle_client_request ~sw ~env state req with
      | None -> ()
      | Some resp -> send_message (Message.Client_response resp) connection);
     state *)
    | Message.Client_response _ -> raise_s [%message "TODO" ~here:[%here]]
    (* TODO handle prepare, send prepareOk *)
-   | Message.Replica_message (Prepare { view_number; op_number; _ }) ->
+   | Message.Replica_message (Prepare { view_number; op_number; message; _ }) ->
      assert (view_number >= state.view_number);
-     if op_number > state.op_number
+     (* If the op_number is 1, that means it's the first Prepare, no need to wait *)
+     if op_number > state.op_number && not (op_number = 1)
      then raise_s [%message "replica is ahead" ~here:[%here]]
      else if op_number < state.op_number
      then raise_s [%message "TODO: replica is behind" ~here:[%here]]
      else (
+       let state = State.enqueue_log state message.operation in
        let prepare_ok =
          Message.Replica_message.PrepareOk
            { view_number; op_number; replica_number = state.replica_number }
@@ -215,13 +226,6 @@ let handle_message ~sw ~env (state : State.t) connection =
    | Message.Replica_message _ -> raise_s [%message "TODO" ~here:[%here]]);
   state
 ;;
-
-(* state *)
-(* match handle_request ~sw ~env state request with
-  | None -> state
-  | Some resp ->
-    send_message (Message.Client_response resp) connection;
-    state *)
 
 let on_error e =
   Logs.err (fun f -> f "%s\n%s" (Exn.to_string e) (Printexc.get_backtrace ()))

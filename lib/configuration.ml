@@ -1,6 +1,7 @@
 open! Core
 
 (* TODO: should dups be included? *)
+(* TODO: this should probably be an array *)
 (* The configuration is a sorted list of IPs *)
 
 let sexp_of_addr addr =
