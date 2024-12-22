@@ -23,10 +23,6 @@ The above also means that the client has to maintain a queue and potentially ret
    - Updates commit-number to 1
    - Sends REPLY to C1
 
-create prepare
-
-create prepareOk
-
 create reply
 
 at this point the distributed KV store _should_ work under _normal_ conditions

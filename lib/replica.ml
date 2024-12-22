@@ -51,6 +51,7 @@ module State = struct
 
   let get_primary s = s.view_number % Configuration.length s.configuration
   let is_primary s = Int.equal s.replica_number (get_primary s)
+  let get_majority s = (Configuration.length s.configuration / 2) + 1
 
   (**     
      Advances op_number, then appends entry to log.
@@ -175,13 +176,13 @@ let receive_message connection =
 let do_consensus ~sw ~env (state : State.t) client_req =
   assert (State.is_primary state);
   let state, connections = send_prepare_to_backups ~sw ~env state client_req in
-  let majority = (Configuration.length state.configuration / 2) + 1 in
+  let majority = State.get_majority state in
+  assert (List.length connections > majority);
   let prepare_ok_count = ref 0 in
   let recieve_closure = List.map ~f:(fun conn () -> receive_message conn) connections in
   while !prepare_ok_count < majority do
     Utils.log_info (sprintf "waiting for OK %d %d" !prepare_ok_count majority);
     (* Wait for PrepareOk from replicas *)
-    assert (List.length connections >= majority);
     match Eio.Fiber.any recieve_closure with
     | Message.Replica_message (PrepareOk _) ->
       (* TODO: validate below *)
@@ -202,7 +203,7 @@ let handle_message ~sw ~env (state : State.t) connection =
         raise_s [%message "TODO: A non priary replica got client req..?" ~here:[%here]]
       | true ->
         let state = State.enqueue_log state req.operation in
-        do_consensus ~sw ~env state req)
+        if State.get_majority state > 1 then do_consensus ~sw ~env state req)
    (* (match handle_client_request ~sw ~env state req with
      | None -> ()
      | Some resp -> send_message (Message.Client_response resp) connection);
