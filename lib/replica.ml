@@ -211,9 +211,8 @@ let primary_commit state =
    (* TODO: decide on the semantical difference between add and update, just call it Set? *)
    | Operation.Update { key; value } -> KVStore.set state.store ~key ~value
    | Operation.Remove { key } -> KVStore.remove state.store ~key
-   (* TODO: This has to be worked out *)
-   | Operation.Join -> ());
-  State.{ state with commit_number = state.op_number }
+   | Operation.Join -> State.add_client state);
+  State.{ state with commit_number = entry.op_number }
 ;;
 
 let do_consensus ~sw ~env (state : State.t) client_req =
@@ -261,7 +260,6 @@ let handle_client_request ~env ~sw (state : State.t) (req : Message.Client_reque
   | Operation.Join ->
     let state = State.enqueue_log state req.operation in
     let state = do_consensus ~sw ~env state req in
-    State.add_client state;
     let response = create_response state req in
     send_client_message response conn
   | _ ->
