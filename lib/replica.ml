@@ -2,38 +2,39 @@ open! Core
 module B = Bytes
 module Write = Eio.Buf_write
 
-module Status = struct
-  type t =
-    | Normal
-    | ViewChange
-    | Recovering
-  [@@deriving bin_io, sexp]
-end
-
-module ClientTable = struct
-  module RequestRecord = struct
-    type t =
-      { last_request_id : int
-      ; last_result : Message.Client_response.t option (* None implies not executed*)
-      }
-    [@@deriving sexp, compare]
-  end
-
-  type t = (int, RequestRecord.t) Hashtbl.t
-
-  let create () : t = Hashtbl.create (module Int)
-end
-
 (* TODO: This records for each client the number of its most ercent request, plus if the request has been executed, the reusult for that request*)
 (* TODO: Reason about performance, should not be problem, could just use mutable if need be. *)
 module State = struct
+  module Status = struct
+    type t =
+      | Normal
+      | ViewChange
+      | Recovering
+    [@@deriving bin_io, sexp]
+  end
+
   module Log = struct
     type entry =
       { op : Operation.t
       ; op_number : int
       }
+    [@@deriving sexp]
 
-    type t = entry Queue.t
+    type t = entry Queue.t [@@deriving sexp]
+  end
+
+  module ClientTable = struct
+    module RequestRecord = struct
+      type t =
+        { last_request_id : int
+        ; last_result : Message.Client_response.t option (* None implies not executed*)
+        }
+      [@@deriving sexp, compare]
+    end
+
+    type t = (int, RequestRecord.t) Hashtbl.t [@@deriving sexp_of]
+
+    let create () : t = Hashtbl.create (module Int)
   end
 
   type t =
@@ -48,6 +49,7 @@ module State = struct
     ; client_table : ClientTable.t
     ; last_client_id : int (* Last client that joined the network, not in paper *)
     }
+  [@@deriving sexp_of]
 
   let get_primary s = s.view_number % Configuration.length s.configuration
   let is_primary s = Int.equal s.replica_number (get_primary s)
@@ -61,6 +63,23 @@ module State = struct
     let entry = Log.{ op; op_number = state.op_number } in
     Queue.enqueue state.log entry;
     state
+  ;;
+
+  let add_client s =
+    let state = { s with last_client_id = s.last_client_id + 1 } in
+    Hashtbl.add_exn
+      state.client_table
+      ~key:state.last_client_id
+      ~data:{ last_request_id = 0; last_result = None };
+    Utils.log_info (sprintf "Client %d joined" state.last_client_id)
+  ;;
+
+  (** None represents not executed *)
+  let update_client s ~client_id ~op_number result =
+    Hashtbl.set
+      s.client_table
+      ~key:client_id
+      ~data:{ last_request_id = op_number; last_result = result }
   ;;
 end
 
@@ -90,16 +109,6 @@ let send_client_message resp connection =
   Bin_prot.Common.blit_buf_bytes msg ~len:(B.length buf) buf;
   Write.with_flow connection (fun to_server -> Write.bytes to_server buf);
   Utils.log_info_sexp ~msg:"Sending: " (Message.Client_response.sexp_of_t resp)
-;;
-
-let add_client (state : State.t) =
-  let state = { state with last_client_id = state.last_client_id + 1 } in
-  Hashtbl.add_exn
-    state.client_table
-    ~key:state.last_client_id
-    ~data:{ last_request_id = 0; last_result = None };
-  Utils.log_info (sprintf "Client %d joined" state.last_client_id);
-  state
 ;;
 
 let send_prepare_to_backups ~sw ~env (state : State.t) message =
@@ -156,15 +165,17 @@ let send_prepare_to_backups ~sw ~env (state : State.t) message =
 let init_state ~addresses ~replica_address : State.t =
   let module IPs = Configuration in
   let configuration = addresses in
-  let replica_number = IPs.find_addr replica_address configuration |> Option.value_exn in
+  let replica_number =
+    IPs.find_addr replica_address configuration |> Option.value ~default:0
+  in
   { configuration
   ; replica_number
   ; view_number = 0
-  ; status = Status.Normal
+  ; status = State.Status.Normal
   ; op_number = 0
   ; log = Queue.create ()
   ; commit_number = 0
-  ; client_table = ClientTable.create ()
+  ; client_table = State.ClientTable.create ()
   ; last_client_id = 0
   }
 ;;
@@ -185,7 +196,7 @@ let do_consensus ~sw ~env (state : State.t) client_req =
   assert (State.is_primary state);
   let state, connections = send_prepare_to_backups ~sw ~env state client_req in
   let majority = State.get_majority state in
-  Utils.assert_s ( >= ) (List.length connections) majority sexp_of_int;
+  assert (List.length connections >= majority);
   let prepare_ok_count = ref 0 in
   let recieve_closure = List.map ~f:(fun conn () -> receive_message conn) connections in
   while !prepare_ok_count < majority do
@@ -221,7 +232,7 @@ let handle_client_request ~env ~sw (state : State.t) (req : Message.Client_reque
   | Operation.Join ->
     let state = State.enqueue_log state req.operation in
     if State.get_majority state > 1 then do_consensus ~sw ~env state req;
-    let state = add_client state in
+    State.add_client state;
     let response = create_response state req in
     send_client_message response conn
   | _ ->
@@ -237,7 +248,7 @@ let handle_client_request ~env ~sw (state : State.t) (req : Message.Client_reque
          let response = create_response state req in
          if State.get_majority state > 1 then do_consensus ~sw ~env state req;
          let new_record =
-           ClientTable.RequestRecord.
+           State.ClientTable.RequestRecord.
              { last_request_id = req.request_number; last_result = Some response }
          in
          Hashtbl.set state.client_table ~key:req.client_id ~data:new_record;
@@ -252,12 +263,9 @@ let handle_message ~sw ~env (state : State.t) connection =
       | false ->
         raise_s [%message "TODO: A non priary replica got client req..?" ~here:[%here]]
       | true -> handle_client_request ~sw ~env state req connection)
-   (* (match handle_client_request ~sw ~env state req with
-     | None -> ()
-     | Some resp -> send_message (Message.Client_response resp) connection);
-    state *)
    | Message.Replica_message (Prepare { view_number; op_number; message; _ }) ->
      assert (view_number >= state.view_number);
+     assert (not @@ State.is_primary state);
      (* If the op_number is 1, that means it's the first Prepare, no need to wait *)
      if op_number > state.op_number && not (op_number = 1)
      then raise_s [%message "replica is ahead" ~here:[%here]]
@@ -265,6 +273,7 @@ let handle_message ~sw ~env (state : State.t) connection =
      then raise_s [%message "TODO: replica is behind" ~here:[%here]]
      else (
        let state = State.enqueue_log state message.operation in
+       State.update_client state ~client_id:message.client_id ~op_number None;
        let prepare_ok =
          Message.Replica_message.PrepareOk
            { view_number; op_number; replica_number = state.replica_number }
@@ -301,4 +310,24 @@ let start addresses replica_address =
       "" (sprintf !"Starting replica on %{sexp:Configuration.addr}" replica_address)];
   Eio_main.run (fun env ->
     Eio.Switch.run (fun sw -> run_replica ~env ~sw addresses replica_address))
+;;
+
+let%expect_test "tt" =
+  let inet = Core_unix.Inet_addr.of_string "127.0.0.1" in
+  let state =
+    init_state
+      ~addresses:Configuration.empty
+      ~replica_address:(Eio_unix.Net.Ipaddr.of_unix inet, 3000)
+  in
+  [%expect {| |}];
+  State.add_client state;
+  print_s (State.ClientTable.sexp_of_t state.client_table);
+  [%expect {| ((1 ((last_request_id 0) (last_result ())))) |}];
+  State.update_client
+    state
+    ~client_id:1
+    ~op_number:1
+    (Some Message.Client_response.Outdated);
+  print_s (State.ClientTable.sexp_of_t state.client_table);
+  [%expect {| ((1 ((last_request_id 1) (last_result (Outdated))))) |}]
 ;;
