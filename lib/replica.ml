@@ -1,6 +1,7 @@
 open! Core
 module B = Bytes
 module Write = Eio.Buf_write
+module KVStore = Kvstore
 
 (* TODO: This records for each client the number of its most ercent request, plus if the request has been executed, the reusult for that request*)
 (* TODO: Reason about performance, should not be problem, could just use mutable if need be. *)
@@ -48,6 +49,7 @@ module State = struct
     ; commit_number : int (* The most recent commited op_number *)
     ; client_table : ClientTable.t
     ; last_client_id : int (* Last client that joined the network, not in paper *)
+    ; store : KVStore.t
     }
   [@@deriving sexp_of]
 
@@ -63,6 +65,12 @@ module State = struct
     let entry = Log.{ op; op_number = state.op_number } in
     Queue.enqueue state.log entry;
     state
+  ;;
+
+  let apply_from_log state =
+    match Queue.peek state.log with
+    | None -> raise_s [%message "Log was empty when trying to commit!"]
+    | Some entry -> entry
   ;;
 
   let add_client s =
@@ -115,7 +123,6 @@ let send_prepare_to_backups ~sw ~env (state : State.t) message =
   let ips = Configuration.to_list state.configuration in
   let primary_i = State.get_primary state in
   let non_primary = List.filteri ips ~f:(fun i _ -> not (Int.equal i primary_i)) in
-  (* let state = { state with op_number = state.op_number + 1 } in *)
   let prepare =
     Message.Replica_message.Prepare
       { view_number = state.view_number
@@ -130,8 +137,7 @@ let send_prepare_to_backups ~sw ~env (state : State.t) message =
     send_message (Message.Replica_message prepare) connection;
     connection
   in
-  let connections = Eio.Fiber.List.map send_to_replica non_primary in
-  state, connections
+  Eio.Fiber.List.map send_to_replica non_primary
 ;;
 
 (* https://chatgpt.com/c/67642853-a348-8006-b355-d00edcabd5ac *)
@@ -177,6 +183,7 @@ let init_state ~addresses ~replica_address : State.t =
   ; commit_number = 0
   ; client_table = State.ClientTable.create ()
   ; last_client_id = 0
+  ; store = KVStore.create ()
   }
 ;;
 
@@ -192,25 +199,47 @@ let receive_message connection =
   msg
 ;;
 
+(* Lastly, to reflect the commit, set the commit_number to op_number. That way backups
+   can commit what they have in the log (upto and including the commit_number)
+*)
+
+let primary_commit state =
+  assert (State.is_primary state);
+  let entry = State.apply_from_log state in
+  (match entry.op with
+   | Operation.Add { key; value } -> KVStore.set state.store ~key ~value
+   (* TODO: decide on the semantical difference between add and update, just call it Set? *)
+   | Operation.Update { key; value } -> KVStore.set state.store ~key ~value
+   | Operation.Remove { key } -> KVStore.remove state.store ~key
+   (* TODO: This has to be worked out *)
+   | Operation.Join -> ());
+  State.{ state with commit_number = state.op_number }
+;;
+
 let do_consensus ~sw ~env (state : State.t) client_req =
   assert (State.is_primary state);
-  let state, connections = send_prepare_to_backups ~sw ~env state client_req in
-  let majority = State.get_majority state in
-  assert (List.length connections >= majority);
-  let prepare_ok_count = ref 0 in
-  let recieve_closure = List.map ~f:(fun conn () -> receive_message conn) connections in
-  while !prepare_ok_count < majority do
-    Utils.log_info (sprintf "waiting for OK %d %d" !prepare_ok_count majority);
-    (* Wait for PrepareOk from replicas *)
-    match Eio.Fiber.any recieve_closure with
-    | Message.Replica_message (PrepareOk _) ->
-      (* TODO: validate below *)
+  if State.get_majority state > 1
+  then (
+    let connections = send_prepare_to_backups ~sw ~env state client_req in
+    let majority = State.get_majority state in
+    assert (List.length connections >= majority);
+    let prepare_ok_count = ref 0 in
+    let recieve_closure = List.map ~f:(fun conn () -> receive_message conn) connections in
+    (* TODO: timeout? failure case? *)
+    while !prepare_ok_count < majority do
+      Utils.log_info (sprintf "waiting for OK %d %d" !prepare_ok_count majority);
+      (* Wait for PrepareOk from replicas *)
+      match Eio.Fiber.any recieve_closure with
+      | Message.Replica_message (PrepareOk _) ->
+        (* TODO: validate below *)
 
-      (* if op_number = state.op_number && view_number = state.view_number *)
-      (* then *)
-      prepare_ok_count := !prepare_ok_count + 1
-    | _ -> raise_s [%message "TODO: a client request, put it in a queue" ~here:[%here]]
-  done
+        (* if op_number = state.op_number && view_number = state.view_number *)
+        (* then *)
+        prepare_ok_count := !prepare_ok_count + 1
+      | _ -> raise_s [%message "TODO: a client request, put it in a queue" ~here:[%here]]
+    done);
+  (* Now that majority has been reached, time to commit. *)
+  primary_commit state
 ;;
 
 let resend_last_response conn response =
@@ -231,13 +260,14 @@ let handle_client_request ~env ~sw (state : State.t) (req : Message.Client_reque
   match req.operation with
   | Operation.Join ->
     let state = State.enqueue_log state req.operation in
-    if State.get_majority state > 1 then do_consensus ~sw ~env state req;
+    let state = do_consensus ~sw ~env state req in
     State.add_client state;
     let response = create_response state req in
     send_client_message response conn
   | _ ->
     (match Hashtbl.find state.client_table req.client_id with
-     | None -> raise_s [%message (sprintf "client %d not in table" req.client_id) [%here]]
+     | None ->
+       raise_s [%message (sprintf "client %d not in table" req.client_id) ~here:[%here]]
      | Some v ->
        if req.request_number < v.last_request_id
        then send_client_message Outdated conn
@@ -246,7 +276,7 @@ let handle_client_request ~env ~sw (state : State.t) (req : Message.Client_reque
        else (
          let state = State.enqueue_log state req.operation in
          let response = create_response state req in
-         if State.get_majority state > 1 then do_consensus ~sw ~env state req;
+         let state = do_consensus ~sw ~env state req in
          let new_record =
            State.ClientTable.RequestRecord.
              { last_request_id = req.request_number; last_result = Some response }

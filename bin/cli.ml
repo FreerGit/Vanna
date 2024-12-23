@@ -27,10 +27,13 @@ let parse_command input (state : Client.State.t) : Message.t option =
   match String.split ~on:' ' input with
   | [ "Join" ] -> Some (Message.Client_request { command with operation = Join })
   | [ "Add"; key; value ] ->
+    let key, value = Bytes.of_string key, Bytes.of_string value in
     Some (Message.Client_request { command with operation = Add { key; value } })
   | [ "Update"; key; value ] ->
+    let key, value = Bytes.of_string key, Bytes.of_string value in
     Some (Message.Client_request { command with operation = Update { key; value } })
   | [ "Remove"; key ] ->
+    let key = Bytes.of_string key in
     Some (Message.Client_request { command with operation = Remove { key } })
   | _ -> None
 ;;

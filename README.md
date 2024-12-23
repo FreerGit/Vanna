@@ -3,6 +3,8 @@ A distributed KV store using Viewstamped Replication (VSR), the implemenation is
 
 ## TODOs
 
+The replicas should commit on subsequence Prepare's, look at commit_number
+
 add_client should either take the result from log or the request itself 
 
 Should Join be implicit?

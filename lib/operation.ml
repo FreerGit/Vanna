@@ -2,13 +2,13 @@ open! Core
 
 type t =
   | Add of
-      { key : string
-      ; value : string
+      { key : Bytes.t
+      ; value : Bytes.t
       }
   | Update of
-      { key : string
-      ; value : string
+      { key : Bytes.t
+      ; value : Bytes.t
       }
-  | Remove of { key : string }
+  | Remove of { key : Bytes.t }
   | Join
 [@@deriving bin_io, sexp, compare]
