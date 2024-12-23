@@ -14,6 +14,7 @@ module Client_response = struct
   type t =
     | Join of { client_id : int }
     | Add of { done_todo : bool }
+    | Outdated
   [@@deriving bin_io, sexp, compare]
 end
 
@@ -36,7 +37,6 @@ end
 
 type t =
   | Client_request of Client_request.t
-  | Client_response of Client_response.t
   | Replica_message of Replica_message.t
 [@@deriving bin_io, sexp]
 

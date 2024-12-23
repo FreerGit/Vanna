@@ -3,6 +3,10 @@ A distributed KV store using Viewstamped Replication (VSR), the implemenation is
 
 ## TODOs
 
+add_client should either take the result from log or the request itself 
+
+Should Join be implicit?
+
 The primary must have a queue for client requests, if the primary is waiting for PrepareOk messages and get a new client request in the middle of it (just reading from the socket). Then it has to be put on a queue to get handled later on.
 
 The above also means that the client has to maintain a queue and potentially retry the requests in case the primary faults when it has requests in its queue.

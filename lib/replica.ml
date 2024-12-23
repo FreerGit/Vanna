@@ -11,15 +11,15 @@ module Status = struct
 end
 
 module ClientTable = struct
-  module RequstRecord = struct
+  module RequestRecord = struct
     type t =
       { last_request_id : int
-      ; last_result : int option (* None implies not executed*)
+      ; last_result : Message.Client_response.t option (* None implies not executed*)
       }
-    [@@deriving sexp, hash, compare]
+    [@@deriving sexp, compare]
   end
 
-  type t = (int, RequstRecord.t) Hashtbl.t
+  type t = (int, RequestRecord.t) Hashtbl.t
 
   let create () : t = Hashtbl.create (module Int)
 end
@@ -65,7 +65,6 @@ module State = struct
 end
 
 let drop_request () = ()
-let resend_last_response _response = ()
 
 let create_response (state : State.t) (req : Message.Client_request.t) =
   match req.operation with
@@ -82,6 +81,15 @@ let send_message resp connection =
   Bin_prot.Common.blit_buf_bytes msg ~len:(B.length buf) buf;
   Write.with_flow connection (fun to_server -> Write.bytes to_server buf);
   Utils.log_info_sexp ~msg:"Sending: " (Message.sexp_of_t resp)
+;;
+
+let send_client_message resp connection =
+  let writer_response = [%bin_writer: Message.Client_response.t] in
+  let msg = Bin_prot.Utils.bin_dump ~header:true writer_response resp in
+  let buf = B.create (Bin_prot.Common.buf_len msg) in
+  Bin_prot.Common.blit_buf_bytes msg ~len:(B.length buf) buf;
+  Write.with_flow connection (fun to_server -> Write.bytes to_server buf);
+  Utils.log_info_sexp ~msg:"Sending: " (Message.Client_response.sexp_of_t resp)
 ;;
 
 let add_client (state : State.t) =
@@ -177,7 +185,7 @@ let do_consensus ~sw ~env (state : State.t) client_req =
   assert (State.is_primary state);
   let state, connections = send_prepare_to_backups ~sw ~env state client_req in
   let majority = State.get_majority state in
-  assert (List.length connections > majority);
+  Utils.assert_s ( >= ) (List.length connections) majority sexp_of_int;
   let prepare_ok_count = ref 0 in
   let recieve_closure = List.map ~f:(fun conn () -> receive_message conn) connections in
   while !prepare_ok_count < majority do
@@ -194,6 +202,48 @@ let do_consensus ~sw ~env (state : State.t) client_req =
   done
 ;;
 
+let resend_last_response conn response =
+  match response with
+  | None -> ()
+  | Some r -> send_client_message r conn
+;;
+
+(** 
+  request_number < last_request_id -> the request is outdated
+  
+  request_number = last_request_id -> resend the previous response
+  
+  request_numbber > last_request_id -> handle the request normally
+*)
+let handle_client_request ~env ~sw (state : State.t) (req : Message.Client_request.t) conn
+  =
+  match req.operation with
+  | Operation.Join ->
+    let state = State.enqueue_log state req.operation in
+    if State.get_majority state > 1 then do_consensus ~sw ~env state req;
+    let state = add_client state in
+    let response = create_response state req in
+    send_client_message response conn
+  | _ ->
+    (match Hashtbl.find state.client_table req.client_id with
+     | None -> raise_s [%message (sprintf "client %d not in table" req.client_id) [%here]]
+     | Some v ->
+       if req.request_number < v.last_request_id
+       then send_client_message Outdated conn
+       else if req.request_number < v.last_request_id
+       then resend_last_response conn v.last_result
+       else (
+         let state = State.enqueue_log state req.operation in
+         let response = create_response state req in
+         if State.get_majority state > 1 then do_consensus ~sw ~env state req;
+         let new_record =
+           ClientTable.RequestRecord.
+             { last_request_id = req.request_number; last_result = Some response }
+         in
+         Hashtbl.set state.client_table ~key:req.client_id ~data:new_record;
+         send_client_message response conn))
+;;
+
 let handle_message ~sw ~env (state : State.t) connection =
   let request = receive_message connection in
   (match request with
@@ -201,15 +251,11 @@ let handle_message ~sw ~env (state : State.t) connection =
      (match State.is_primary state with
       | false ->
         raise_s [%message "TODO: A non priary replica got client req..?" ~here:[%here]]
-      | true ->
-        let state = State.enqueue_log state req.operation in
-        if State.get_majority state > 1 then do_consensus ~sw ~env state req)
+      | true -> handle_client_request ~sw ~env state req connection)
    (* (match handle_client_request ~sw ~env state req with
      | None -> ()
      | Some resp -> send_message (Message.Client_response resp) connection);
     state *)
-   | Message.Client_response _ -> raise_s [%message "TODO" ~here:[%here]]
-   (* TODO handle prepare, send prepareOk *)
    | Message.Replica_message (Prepare { view_number; op_number; message; _ }) ->
      assert (view_number >= state.view_number);
      (* If the op_number is 1, that means it's the first Prepare, no need to wait *)

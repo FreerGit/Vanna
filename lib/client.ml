@@ -35,7 +35,8 @@ let run_client ~f ~env ~sw ~addr =
       (match resp with
        | Join x ->
          state := { client_id = x.client_id; request_number = !state.request_number + 1 }
-       | Add _ -> ());
+       | Add _ -> ()
+       | Outdated -> ());
       Logs.info (fun f ->
         f "Payload: %s" (Sexp.to_string_hum @@ Message.Client_response.sexp_of_t resp))
   done
