@@ -1,28 +1,35 @@
 open! Core
 module B = Bytes
 
-module Client_request = struct
+module Request = struct
   type t =
     { client_id : int
     ; request_number : int
     ; operation : Operation.t
     }
-  [@@deriving bin_io, sexp]
+  [@@deriving bin_io, sexp, compare]
 end
 
-module Client_response = struct
-  type t =
+module Reply = struct
+  type result =
     | Join of { client_id : int }
     | Add of { done_todo : bool }
     | Outdated
   [@@deriving bin_io, sexp, compare]
+
+  type t =
+    { view_number : int
+    ; request_number : int
+    ; result : result
+    }
+  [@@deriving bin_io, sexp, compare]
 end
 
-module Replica_message = struct
+module Replica = struct
   type t =
     | Prepare of
         { view_number : int
-        ; message : Client_request.t
+        ; message : Request.t
         ; op_number : int
         ; commit_number : int
         }
@@ -31,13 +38,13 @@ module Replica_message = struct
         ; op_number : int
         ; replica_number : int
         }
-  [@@deriving bin_io, sexp]
+  [@@deriving bin_io, sexp, compare]
 end
 (* | Reply of { view_number: int; } *)
 
 type t =
-  | Client_request of Client_request.t
-  | Replica_message of Replica_message.t
+  | Client_request of Request.t
+  | Replica_message of Replica.t
 [@@deriving bin_io, sexp]
 
 let to_bytes req =

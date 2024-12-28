@@ -28,7 +28,7 @@ module State = struct
     module RequestRecord = struct
       type t =
         { last_request_id : int
-        ; last_result : Message.Client_response.t option (* None implies not executed*)
+        ; last_result : Message.Reply.result option (* None implies not executed*)
         }
       [@@deriving sexp, compare]
     end
@@ -40,7 +40,7 @@ module State = struct
 
   type t =
     { configuration : Configuration.t
-      (* TODO: make sure that the invariant holds for the index when updating config. *)
+        (* TODO: make sure that the invariant holds for the index when updating config. *)
     ; replica_number : int (* This is the index into its IP in configuration *)
     ; view_number : int (* Initially 0 *)
     ; status : Status.t
@@ -57,9 +57,7 @@ module State = struct
   let is_primary s = Int.equal s.replica_number (get_primary s)
   let get_majority s = (Configuration.length s.configuration / 2) + 1
 
-  (**     
-     Advances op_number, then appends entry to log.
-  *)
+  (** Advances op_number, then appends entry to log. *)
   let enqueue_log state (op : Operation.t) =
     let state = { state with op_number = state.op_number + 1 } in
     let entry = Log.{ op; op_number = state.op_number } in
@@ -67,6 +65,7 @@ module State = struct
     state
   ;;
 
+  (** Note that this operation peeks from the log, the entry is still there. *)
   let apply_from_log state =
     match Queue.peek state.log with
     | None -> raise_s [%message "Log was empty when trying to commit!"]
@@ -93,30 +92,32 @@ end
 
 let drop_request () = ()
 
-let create_response (state : State.t) (req : Message.Client_request.t) =
-  match req.operation with
-  | Join -> Message.Client_response.Join { client_id = state.last_client_id }
-  | Add _ -> Message.Client_response.Add { done_todo = true }
-  | Update _ -> assert false
-  | Remove _ -> assert false
+let create_response (state : State.t) (req : Message.Request.t) =
+  let result =
+    ((match req.operation with
+      | Join -> Message.Reply.Join { client_id = state.last_client_id }
+      | Add _ -> Message.Reply.Add { done_todo = true }
+      | Update _ -> assert false
+      | Remove _ -> assert false)
+     : Message.Reply.result)
+  in
+  Message.Reply.
+    { view_number = state.view_number; request_number = req.request_number; result }
 ;;
 
 let send_message resp connection =
-  let writer_response = [%bin_writer: Message.t] in
-  let msg = Bin_prot.Utils.bin_dump ~header:true writer_response resp in
-  let buf = B.create (Bin_prot.Common.buf_len msg) in
-  Bin_prot.Common.blit_buf_bytes msg ~len:(B.length buf) buf;
+  let buf = Message.to_bytes resp in
   Write.with_flow connection (fun to_server -> Write.bytes to_server buf);
   Utils.log_info_sexp ~msg:"Sending: " (Message.sexp_of_t resp)
 ;;
 
 let send_client_message resp connection =
-  let writer_response = [%bin_writer: Message.Client_response.t] in
+  let writer_response = [%bin_writer: Message.Reply.t] in
   let msg = Bin_prot.Utils.bin_dump ~header:true writer_response resp in
   let buf = B.create (Bin_prot.Common.buf_len msg) in
   Bin_prot.Common.blit_buf_bytes msg ~len:(B.length buf) buf;
   Write.with_flow connection (fun to_server -> Write.bytes to_server buf);
-  Utils.log_info_sexp ~msg:"Sending: " (Message.Client_response.sexp_of_t resp)
+  Utils.log_info_sexp ~msg:"Sending: " (Message.Reply.sexp_of_t resp)
 ;;
 
 let send_prepare_to_backups ~sw ~env (state : State.t) message =
@@ -124,7 +125,7 @@ let send_prepare_to_backups ~sw ~env (state : State.t) message =
   let primary_i = State.get_primary state in
   let non_primary = List.filteri ips ~f:(fun i _ -> not (Int.equal i primary_i)) in
   let prepare =
-    Message.Replica_message.Prepare
+    Message.Replica.Prepare
       { view_number = state.view_number
       ; message
       ; op_number = state.op_number
@@ -139,34 +140,6 @@ let send_prepare_to_backups ~sw ~env (state : State.t) message =
   in
   Eio.Fiber.List.map send_to_replica non_primary
 ;;
-
-(* https://chatgpt.com/c/67642853-a348-8006-b355-d00edcabd5ac *)
-
-(* let handle_request ~sw ~env (state : State.t) (r : Message.Client_request.t) =
-  Utils.log_info "handle_request";
-  if Operation.compare r.operation Join = 0
-  then (
-    let state = send_prepare ~sw ~env state r in
-    let state = add_client state in
-    Some (create_response state r))
-  else (
-    match Hashtbl.find state.client_table r.client_id with
-    | None -> raise_s [%message (sprintf "client %d not in table" r.client_id) [%here]]
-    | Some v ->
-      Utils.log_info
-        (sprintf "%d %d" (compare r.request_number v.last_request_id) r.request_number);
-      (match compare r.request_number v.last_request_id with
-       | x when x < 0 ->
-         drop_request ();
-         None
-       | 0 ->
-         drop_request ();
-         (match v.last_result with
-          | None -> ()
-          | Some r -> resend_last_response r);
-         None
-       | _ -> Some (create_response state r)))
-;; *)
 
 let init_state ~addresses ~replica_address : State.t =
   let module IPs = Configuration in
@@ -202,7 +175,6 @@ let receive_message connection =
 (* Lastly, to reflect the commit, set the commit_number to op_number. That way backups
    can commit what they have in the log (upto and including the commit_number)
 *)
-
 let primary_commit state =
   assert (State.is_primary state);
   let entry = State.apply_from_log state in
@@ -241,21 +213,20 @@ let do_consensus ~sw ~env (state : State.t) client_req =
   primary_commit state
 ;;
 
-let resend_last_response conn response =
+let resend_last_response v r conn response =
   match response with
   | None -> ()
-  | Some r -> send_client_message r conn
+  | Some result ->
+    let reply = Message.Reply.{ view_number = v; request_number = r; result } in
+    send_client_message reply conn
 ;;
 
-(** 
-  request_number < last_request_id -> the request is outdated
-  
-  request_number = last_request_id -> resend the previous response
-  
-  request_numbber > last_request_id -> handle the request normally
-*)
-let handle_client_request ~env ~sw (state : State.t) (req : Message.Client_request.t) conn
-  =
+(** request_number < last_request_id -> the request is outdated
+
+    request_number = last_request_id -> resend the previous response
+
+    request_numbber > last_request_id -> handle the request normally *)
+let handle_client_request ~env ~sw (state : State.t) (req : Message.Request.t) conn =
   match req.operation with
   | Operation.Join ->
     let state = State.enqueue_log state req.operation in
@@ -267,17 +238,24 @@ let handle_client_request ~env ~sw (state : State.t) (req : Message.Client_reque
      | None ->
        raise_s [%message (sprintf "client %d not in table" req.client_id) ~here:[%here]]
      | Some v ->
+       let reply result =
+         Message.Reply.
+           { view_number = state.view_number
+           ; request_number = req.request_number
+           ; result
+           }
+       in
        if req.request_number < v.last_request_id
-       then send_client_message Outdated conn
+       then send_client_message (reply Outdated) conn
        else if req.request_number < v.last_request_id
-       then resend_last_response conn v.last_result
+       then resend_last_response state.view_number req.request_number conn v.last_result
        else (
          let state = State.enqueue_log state req.operation in
          let response = create_response state req in
          let state = do_consensus ~sw ~env state req in
          let new_record =
            State.ClientTable.RequestRecord.
-             { last_request_id = req.request_number; last_result = Some response }
+             { last_request_id = req.request_number; last_result = Some response.result }
          in
          Hashtbl.set state.client_table ~key:req.client_id ~data:new_record;
          send_client_message response conn))
@@ -303,7 +281,7 @@ let handle_message ~sw ~env (state : State.t) connection =
        let state = State.enqueue_log state message.operation in
        State.update_client state ~client_id:message.client_id ~op_number None;
        let prepare_ok =
-         Message.Replica_message.PrepareOk
+         Message.Replica.PrepareOk
            { view_number; op_number; replica_number = state.replica_number }
        in
        send_message (Message.Replica_message prepare_ok) connection)
@@ -351,11 +329,7 @@ let%expect_test "tt" =
   State.add_client state;
   print_s (State.ClientTable.sexp_of_t state.client_table);
   [%expect {| ((1 ((last_request_id 0) (last_result ())))) |}];
-  State.update_client
-    state
-    ~client_id:1
-    ~op_number:1
-    (Some Message.Client_response.Outdated);
+  State.update_client state ~client_id:1 ~op_number:1 (Some Message.Reply.Outdated);
   print_s (State.ClientTable.sexp_of_t state.client_table);
   [%expect {| ((1 ((last_request_id 1) (last_result (Outdated))))) |}]
 ;;

@@ -10,7 +10,7 @@ module State = struct
 end
 
 let read_response connection =
-  let reader_response = [%bin_reader: Message.Client_response.t] in
+  let reader_response = [%bin_reader: Message.Reply.t] in
   Bin_prot.Utils.bin_read_stream reader_response ~read:(fun buf ~pos ~len ->
     let c = Cstruct.create len in
     Eio.Flow.read_exact connection c;
@@ -32,13 +32,13 @@ let run_client ~f ~env ~sw ~addr =
       let req = Message.to_bytes r in
       Write.with_flow connection (fun to_server -> Write.bytes to_server req);
       let resp = read_response connection in
-      (match resp with
+      (match resp.result with
        | Join x ->
          state := { client_id = x.client_id; request_number = !state.request_number + 1 }
        | Add _ -> ()
        | Outdated -> ());
       Logs.info (fun f ->
-        f "Payload: %s" (Sexp.to_string_hum @@ Message.Client_response.sexp_of_t resp))
+        f "Payload: %s" (Sexp.to_string_hum @@ Message.Reply.sexp_of_t resp))
   done
 ;;
 

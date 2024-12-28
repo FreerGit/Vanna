@@ -49,9 +49,11 @@ https://dspace.mit.edu/bitstream/handle/1721.1/71763/MIT-CSAIL-TR-2012-021.pdf?s
 **_IF_ I go down the multiple client route, do I write it in C to let others wrap it?**
 * I would like a C99 client anyway so I guess it make sense.
 
-## Things to ponder upon
+** Should I ammortize the cost of IO by batching?
+* If so, probably user definable - batching by time or by number of reqeusts?
+* I am not fully clued in on what occurs if the primary fails before a batch has been commited, do the client have to keep track of it?
 
-TODO uninstall forticlient and thinlinc
+## Things to ponder upon
 
 ### Client id
 Right now there can be {0..uint32_max} clients, the client must keep track of the client id from the response. There is no way to remove clients from the table at this point, I could set a timeout on each entry? That would require the client to also know abou that timeout however, since it would need to send a new Join mesasge to get a new id. 
