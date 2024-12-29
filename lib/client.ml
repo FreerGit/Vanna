@@ -33,10 +33,11 @@ let run_client ~f ~env ~sw ~addr =
       Write.with_flow connection (fun to_server -> Write.bytes to_server req);
       let resp = read_response connection in
       (match resp.result with
-       | Join x ->
-         state := { client_id = x.client_id; request_number = !state.request_number + 1 }
-       | Add _ -> ()
-       | Outdated -> ());
+       | JoinResult (Ok x) ->
+         state := { client_id = x; request_number = !state.request_number + 1 }
+       | AddResult (Ok _) -> ()
+       | Outdated -> ()
+       | _ -> raise_s [%message "TODO" ~here:[%here]]);
       Logs.info (fun f ->
         f "Payload: %s" (Sexp.to_string_hum @@ Message.Reply.sexp_of_t resp))
   done

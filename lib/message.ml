@@ -5,22 +5,16 @@ module Request = struct
   type t =
     { client_id : int
     ; request_number : int
-    ; operation : Operation.t
+    ; op : Operation.t
     }
   [@@deriving bin_io, sexp, compare]
 end
 
 module Reply = struct
-  type result =
-    | Join of { client_id : int }
-    | Add of { done_todo : bool }
-    | Outdated
-  [@@deriving bin_io, sexp, compare]
-
   type t =
     { view_number : int
     ; request_number : int
-    ; result : result
+    ; result : Operation.result
     }
   [@@deriving bin_io, sexp, compare]
 end

@@ -3,22 +3,19 @@ open Vanna
 
 let parse_command input (state : Client.State.t) : Message.t option =
   let command : Message.Request.t =
-    { client_id = state.client_id
-    ; request_number = state.request_number
-    ; operation = Join
-    }
+    { client_id = state.client_id; request_number = state.request_number; op = Join }
   in
   match String.split ~on:' ' input with
-  | [ "Join" ] -> Some (Message.Client_request { command with operation = Join })
+  | [ "Join" ] -> Some (Message.Client_request { command with op = Join })
   | [ "Add"; key; value ] ->
     let key, value = Bytes.of_string key, Bytes.of_string value in
-    Some (Message.Client_request { command with operation = Add { key; value } })
+    Some (Message.Client_request { command with op = Add { key; value } })
   | [ "Update"; key; value ] ->
     let key, value = Bytes.of_string key, Bytes.of_string value in
-    Some (Message.Client_request { command with operation = Update { key; value } })
+    Some (Message.Client_request { command with op = Update { key; value } })
   | [ "Remove"; key ] ->
     let key = Bytes.of_string key in
-    Some (Message.Client_request { command with operation = Remove { key } })
+    Some (Message.Client_request { command with op = Remove { key } })
   | _ -> None
 ;;
 

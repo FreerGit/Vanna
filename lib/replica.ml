@@ -14,21 +14,11 @@ module State = struct
     [@@deriving bin_io, sexp]
   end
 
-  module Log = struct
-    type entry =
-      { op : Operation.t
-      ; op_number : int
-      }
-    [@@deriving sexp]
-
-    type t = entry Queue.t [@@deriving sexp]
-  end
-
   module ClientTable = struct
     module RequestRecord = struct
       type t =
         { last_request_id : int
-        ; last_result : Message.Reply.result option (* None implies not executed*)
+        ; last_result : Operation.result option (* None implies not executed*)
         }
       [@@deriving sexp, compare]
     end
@@ -48,7 +38,6 @@ module State = struct
     ; log : Log.t (* Ordered list of operations *)
     ; commit_number : int (* The most recent commited op_number *)
     ; client_table : ClientTable.t
-    ; last_client_id : int (* Last client that joined the network, not in paper *)
     ; store : KVStore.t
     }
   [@@deriving sexp_of]
@@ -58,27 +47,24 @@ module State = struct
   let get_majority s = (Configuration.length s.configuration / 2) + 1
 
   (** Advances op_number, then appends entry to log. *)
-  let enqueue_log state (op : Operation.t) =
-    let state = { state with op_number = state.op_number + 1 } in
-    let entry = Log.{ op; op_number = state.op_number } in
-    Queue.enqueue state.log entry;
-    state
-  ;;
-
-  (** Note that this operation peeks from the log, the entry is still there. *)
-  let apply_from_log state =
-    match Queue.peek state.log with
-    | None -> raise_s [%message "Log was empty when trying to commit!"]
-    | Some entry -> entry
+  let enqueue_log (s : t) req =
+    let entry = Log.{ req; op_number = s.op_number } in
+    let s = { s with op_number = s.op_number + 1 } in
+    Log.append_entry s.log entry
   ;;
 
   let add_client s =
-    let state = { s with last_client_id = s.last_client_id + 1 } in
+    let new_client =
+      Hashtbl.keys s.client_table
+      |> List.max_elt ~compare:Int.compare
+      |> Option.value_map ~f:(( + ) 1) ~default:0
+    in
     Hashtbl.add_exn
-      state.client_table
-      ~key:state.last_client_id
+      s.client_table
+      ~key:new_client
       ~data:{ last_request_id = 0; last_result = None };
-    Utils.log_info (sprintf "Client %d joined" state.last_client_id)
+    Utils.log_info (sprintf "Client %d joined" new_client);
+    new_client
   ;;
 
   (** None represents not executed *)
@@ -90,12 +76,14 @@ module State = struct
   ;;
 end
 
+open State
+
 let drop_request () = ()
 
-let create_response (state : State.t) (req : Message.Request.t) =
+(* let create_response (state : State.t) (req : Message.Request.t) =
   let result =
     ((match req.operation with
-      | Join -> Message.Reply.Join { client_id = state.last_client_id }
+      | Join -> Message.Reply.Join { client_id = state. }
       | Add _ -> Message.Reply.Add { done_todo = true }
       | Update _ -> assert false
       | Remove _ -> assert false)
@@ -103,7 +91,7 @@ let create_response (state : State.t) (req : Message.Request.t) =
   in
   Message.Reply.
     { view_number = state.view_number; request_number = req.request_number; result }
-;;
+;; *)
 
 let send_message resp connection =
   let buf = Message.to_bytes resp in
@@ -111,16 +99,16 @@ let send_message resp connection =
   Utils.log_info_sexp ~msg:"Sending: " (Message.sexp_of_t resp)
 ;;
 
-let send_client_message resp connection =
+let send_client_reply reply conn =
   let writer_response = [%bin_writer: Message.Reply.t] in
-  let msg = Bin_prot.Utils.bin_dump ~header:true writer_response resp in
+  let msg = Bin_prot.Utils.bin_dump ~header:true writer_response reply in
   let buf = B.create (Bin_prot.Common.buf_len msg) in
   Bin_prot.Common.blit_buf_bytes msg ~len:(B.length buf) buf;
-  Write.with_flow connection (fun to_server -> Write.bytes to_server buf);
-  Utils.log_info_sexp ~msg:"Sending: " (Message.Reply.sexp_of_t resp)
+  Write.with_flow conn (fun to_server -> Write.bytes to_server buf);
+  Utils.log_info_sexp ~msg:"Sending: " (Message.Reply.sexp_of_t reply)
 ;;
 
-let send_prepare_to_backups ~sw ~env (state : State.t) message =
+let send_prepare_to_backups ~sw ~env state message =
   let ips = Configuration.to_list state.configuration in
   let primary_i = State.get_primary state in
   let non_primary = List.filteri ips ~f:(fun i _ -> not (Int.equal i primary_i)) in
@@ -141,23 +129,23 @@ let send_prepare_to_backups ~sw ~env (state : State.t) message =
   Eio.Fiber.List.map send_to_replica non_primary
 ;;
 
-let init_state ~addresses ~replica_address : State.t =
+let init_state ~addresses ~replica_address =
   let module IPs = Configuration in
   let configuration = addresses in
   let replica_number =
     IPs.find_addr replica_address configuration |> Option.value ~default:0
   in
-  { configuration
-  ; replica_number
-  ; view_number = 0
-  ; status = State.Status.Normal
-  ; op_number = 0
-  ; log = Queue.create ()
-  ; commit_number = 0
-  ; client_table = State.ClientTable.create ()
-  ; last_client_id = 0
-  ; store = KVStore.create ()
-  }
+  State.
+    { configuration
+    ; replica_number
+    ; view_number = 0
+    ; status = State.Status.Normal
+    ; op_number = 0
+    ; log = Log.create_log ~initial_length:1024 ()
+    ; commit_number = 0
+    ; client_table = State.ClientTable.create ()
+    ; store = KVStore.create ()
+    }
 ;;
 
 let receive_message connection =
@@ -172,22 +160,48 @@ let receive_message connection =
   msg
 ;;
 
-(* Lastly, to reflect the commit, set the commit_number to op_number. That way backups
-   can commit what they have in the log (upto and including the commit_number)
-*)
-let primary_commit state =
-  assert (State.is_primary state);
-  let entry = State.apply_from_log state in
-  (match entry.op with
-   | Operation.Add { key; value } -> KVStore.set state.store ~key ~value
-   (* TODO: decide on the semantical difference between add and update, just call it Set? *)
-   | Operation.Update { key; value } -> KVStore.set state.store ~key ~value
-   | Operation.Remove { key } -> KVStore.remove state.store ~key
-   | Operation.Join -> State.add_client state);
-  State.{ state with commit_number = entry.op_number }
+let execute_operation state (entry : Log.entry) =
+  assert (entry.op_number <= state.op_number);
+  assert (entry.op_number < state.commit_number);
+  match entry.req.op with
+  | Operation.Add { key; value } ->
+    KVStore.set state.store ~key ~value;
+    Operation.AddResult (Ok ())
+  (* TODO: decide on the semantical difference between add and update, just call it Set? *)
+  | Operation.Update { key; value } ->
+    KVStore.set state.store ~key ~value;
+    Operation.UpdateResult (Ok ())
+  | Operation.Remove { key } ->
+    KVStore.remove state.store ~key;
+    Operation.RemoveResult (Ok ())
+  | Operation.Join ->
+    let new_client_id = State.add_client state in
+    Operation.JoinResult (Ok new_client_id)
 ;;
 
-let do_consensus ~sw ~env (state : State.t) client_req =
+let primary_commit_and_reply state conn =
+  (* let state = State.{ state with commit_number = state.op_number } in *)
+  let rec go state =
+    if state.op_number < state.commit_number
+    then (
+      let next_op = Log.get_log_entry state.log state.op_number in
+      let state = { state with op_number = state.op_number + 1 } in
+      let result = execute_operation state next_op in
+      let reply =
+        Message.Reply.
+          { view_number = state.view_number
+          ; request_number = next_op.req.request_number
+          ; result
+          }
+      in
+      send_client_reply reply conn;
+      go state)
+    else state
+  in
+  go state
+;;
+
+let do_consensus ~sw ~env state client_req =
   assert (State.is_primary state);
   if State.get_majority state > 1
   then (
@@ -200,25 +214,28 @@ let do_consensus ~sw ~env (state : State.t) client_req =
     while !prepare_ok_count < majority do
       Utils.log_info (sprintf "waiting for OK %d %d" !prepare_ok_count majority);
       (* Wait for PrepareOk from replicas *)
-      match Eio.Fiber.any recieve_closure with
-      | Message.Replica_message (PrepareOk _) ->
-        (* TODO: validate below *)
+      let oks = Eio.Fiber.n_any recieve_closure in
+      List.iter oks ~f:(fun r ->
+        match r with
+        | Message.Replica_message (PrepareOk _) ->
+          (* TODO: validate below *)
 
-        (* if op_number = state.op_number && view_number = state.view_number *)
-        (* then *)
-        prepare_ok_count := !prepare_ok_count + 1
-      | _ -> raise_s [%message "TODO: a client request, put it in a queue" ~here:[%here]]
-    done);
-  (* Now that majority has been reached, time to commit. *)
-  primary_commit state
+          (* if op_number = state.op_number && view_number = state.view_number *)
+          (* then *)
+          prepare_ok_count := !prepare_ok_count + 1
+        | _ ->
+          raise_s [%message "TODO: a client request, put it in a queue" ~here:[%here]])
+    done)
 ;;
 
 let resend_last_response v r conn response =
   match response with
   | None -> ()
-  | Some result ->
-    let reply = Message.Reply.{ view_number = v; request_number = r; result } in
-    send_client_message reply conn
+  | Some req ->
+    let reply =
+      Message.Reply.{ view_number = v; request_number = r; result = req.result }
+    in
+    send_client_reply reply conn
 ;;
 
 (** request_number < last_request_id -> the request is outdated
@@ -226,13 +243,14 @@ let resend_last_response v r conn response =
     request_number = last_request_id -> resend the previous response
 
     request_numbber > last_request_id -> handle the request normally *)
-let handle_client_request ~env ~sw (state : State.t) (req : Message.Request.t) conn =
-  match req.operation with
+let handle_client_request ~env ~sw state (req : Message.Request.t) conn =
+  match req.op with
   | Operation.Join ->
-    let state = State.enqueue_log state req.operation in
-    let state = do_consensus ~sw ~env state req in
-    let response = create_response state req in
-    send_client_message response conn
+    State.enqueue_log state req;
+    do_consensus ~sw ~env state req;
+    (* Now that majority has been reached, time to commit. *)
+    let state = primary_commit_and_reply state conn in
+    state
   | _ ->
     (match Hashtbl.find state.client_table req.client_id with
      | None ->
@@ -246,46 +264,54 @@ let handle_client_request ~env ~sw (state : State.t) (req : Message.Request.t) c
            }
        in
        if req.request_number < v.last_request_id
-       then send_client_message (reply Outdated) conn
+       then (
+         send_client_reply (reply Outdated) conn;
+         state)
        else if req.request_number < v.last_request_id
-       then resend_last_response state.view_number req.request_number conn v.last_result
+       then
+         state
+         (* TODO *)
+         (* resend_last_response
+            state.view_number
+            req.request_number
+            conn
+            (reply v.last_result) *)
        else (
-         let state = State.enqueue_log state req.operation in
-         let response = create_response state req in
-         let state = do_consensus ~sw ~env state req in
-         let new_record =
-           State.ClientTable.RequestRecord.
-             { last_request_id = req.request_number; last_result = Some response.result }
-         in
-         Hashtbl.set state.client_table ~key:req.client_id ~data:new_record;
-         send_client_message response conn))
+         State.enqueue_log state req;
+         do_consensus ~sw ~env state req;
+         (* Now that majority has been reached, time to commit. *)
+         let state = primary_commit_and_reply state conn in
+         state))
 ;;
 
-let handle_message ~sw ~env (state : State.t) connection =
+let handle_message ~sw ~env state connection =
   let request = receive_message connection in
-  (match request with
-   | Message.Client_request req ->
-     (match State.is_primary state with
-      | false ->
-        raise_s [%message "TODO: A non priary replica got client req..?" ~here:[%here]]
-      | true -> handle_client_request ~sw ~env state req connection)
-   | Message.Replica_message (Prepare { view_number; op_number; message; _ }) ->
-     assert (view_number >= state.view_number);
-     assert (not @@ State.is_primary state);
-     (* If the op_number is 1, that means it's the first Prepare, no need to wait *)
-     if op_number > state.op_number && not (op_number = 1)
-     then raise_s [%message "replica is ahead" ~here:[%here]]
-     else if op_number < state.op_number
-     then raise_s [%message "TODO: replica is behind" ~here:[%here]]
-     else (
-       let state = State.enqueue_log state message.operation in
-       State.update_client state ~client_id:message.client_id ~op_number None;
-       let prepare_ok =
-         Message.Replica.PrepareOk
-           { view_number; op_number; replica_number = state.replica_number }
-       in
-       send_message (Message.Replica_message prepare_ok) connection)
-   | Message.Replica_message _ -> raise_s [%message "TODO" ~here:[%here]]);
+  let state =
+    match request with
+    | Message.Client_request req ->
+      (match State.is_primary state with
+       | false ->
+         raise_s [%message "TODO: A non priary replica got client req..?" ~here:[%here]]
+       | true -> handle_client_request ~sw ~env state req connection)
+    | Message.Replica_message (Prepare { view_number; op_number; message; _ }) ->
+      assert (view_number >= state.view_number);
+      assert (not @@ State.is_primary state);
+      (* If the op_number is 1, that means it's the first Prepare, no need to wait *)
+      if op_number > state.op_number && not (op_number = 1)
+      then raise_s [%message "replica is ahead" ~here:[%here]]
+      else if op_number < state.op_number
+      then raise_s [%message "TODO: replica is behind" ~here:[%here]]
+      else (
+        State.enqueue_log state message;
+        State.update_client state ~client_id:message.client_id ~op_number None;
+        let prepare_ok =
+          Message.Replica.PrepareOk
+            { view_number; op_number; replica_number = state.replica_number }
+        in
+        send_message (Message.Replica_message prepare_ok) connection;
+        state)
+    | Message.Replica_message _ -> raise_s [%message "TODO" ~here:[%here]]
+  in
   state
 ;;
 
@@ -326,10 +352,10 @@ let%expect_test "tt" =
       ~replica_address:(Eio_unix.Net.Ipaddr.of_unix inet, 3000)
   in
   [%expect {| |}];
-  State.add_client state;
+  let client_id = State.add_client state in
   print_s (State.ClientTable.sexp_of_t state.client_table);
-  [%expect {| ((1 ((last_request_id 0) (last_result ())))) |}];
-  State.update_client state ~client_id:1 ~op_number:1 (Some Message.Reply.Outdated);
+  [%expect {| ((0 ((last_request_id 0) (last_result ())))) |}];
+  State.update_client state ~client_id ~op_number:1 (Some Operation.Outdated);
   print_s (State.ClientTable.sexp_of_t state.client_table);
-  [%expect {| ((1 ((last_request_id 1) (last_result (Outdated))))) |}]
+  [%expect {| ((0 ((last_request_id 1) (last_result (Outdated))))) |}]
 ;;
