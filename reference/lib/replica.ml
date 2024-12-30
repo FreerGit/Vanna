@@ -162,7 +162,7 @@ let receive_message connection =
 ;;
 
 let execute_operation state (entry : Log.entry) =
-  assert (entry.op_number <= state.op_number);
+  Utils.assert_int [%here] ( <= ) entry.op_number state.op_number;
   Utils.assert_int [%here] ( > ) entry.op_number state.commit_number;
   match entry.req.op with
   | Operation.Add { key; value } ->
@@ -209,7 +209,7 @@ let do_consensus ~sw ~env state client_req =
   then (
     let connections = send_prepare_to_backups ~sw ~env state client_req in
     let majority = State.get_majority state in
-    assert (List.length connections >= majority);
+    Utils.assert_int [%here] ( >= ) (List.length connections) majority;
     let p, u = Eio.Promise.create () in
     let prepare_ok_count = ref 0 in
     List.iter
@@ -296,7 +296,7 @@ let handle_message ~sw ~env state connection =
          raise_s [%message "TODO: A non priary replica got client req..?" ~here:[%here]]
        | true -> handle_client_request ~sw ~env state req connection)
     | Message.Replica_message (Prepare { view_number; op_number; message; _ }) ->
-      assert (view_number >= state.view_number);
+      Utils.assert_int [%here] ( >= ) view_number state.view_number;
       assert (not @@ State.is_primary state);
       (* If the op_number is 1, that means it's the first Prepare, no need to wait *)
       if op_number > state.op_number && not (op_number = 1)

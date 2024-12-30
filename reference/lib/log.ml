@@ -31,8 +31,8 @@ let append_entry t entry =
    ;; *)
 
 let get_log_entry t commit =
-  assert (commit > 0);
-  assert (commit > t.last_checkpointed);
+  Utils.assert_int [%here] ( > ) commit 0;
+  Utils.assert_int [%here] ( > ) commit t.last_checkpointed;
   match Deque.find t.entries ~f:(fun e -> e.op_number = commit) with
   | None -> raise_s [%message "TODO" ~here:[%here]]
   | Some e ->
