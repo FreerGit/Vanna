@@ -48,9 +48,10 @@ module State = struct
 
   (** Advances op_number, then appends entry to log. *)
   let enqueue_log (s : t) req =
-    let entry = Log.{ req; op_number = s.op_number } in
     let s = { s with op_number = s.op_number + 1 } in
-    Log.append_entry s.log entry
+    let entry = Log.{ req; op_number = s.op_number } in
+    Log.append_entry s.log entry;
+    s
   ;;
 
   let add_client s =
@@ -162,7 +163,7 @@ let receive_message connection =
 
 let execute_operation state (entry : Log.entry) =
   assert (entry.op_number <= state.op_number);
-  assert (entry.op_number < state.commit_number);
+  Utils.assert_int [%here] ( > ) entry.op_number state.commit_number;
   match entry.req.op with
   | Operation.Add { key; value } ->
     KVStore.set state.store ~key ~value;
@@ -182,11 +183,11 @@ let execute_operation state (entry : Log.entry) =
 let primary_commit_and_reply state conn =
   (* let state = State.{ state with commit_number = state.op_number } in *)
   let rec go state =
-    if state.op_number < state.commit_number
+    if state.op_number > state.commit_number
     then (
       let next_op = Log.get_log_entry state.log state.op_number in
-      let state = { state with op_number = state.op_number + 1 } in
       let result = execute_operation state next_op in
+      let state = { state with commit_number = next_op.op_number } in
       let reply =
         Message.Reply.
           { view_number = state.view_number
@@ -198,6 +199,7 @@ let primary_commit_and_reply state conn =
       go state)
     else state
   in
+  Utils.log_info "Committed and replied";
   go state
 ;;
 
@@ -208,24 +210,24 @@ let do_consensus ~sw ~env state client_req =
     let connections = send_prepare_to_backups ~sw ~env state client_req in
     let majority = State.get_majority state in
     assert (List.length connections >= majority);
+    let p, u = Eio.Promise.create () in
     let prepare_ok_count = ref 0 in
-    let recieve_closure = List.map ~f:(fun conn () -> receive_message conn) connections in
-    (* TODO: timeout? failure case? *)
-    while !prepare_ok_count < majority do
-      Utils.log_info (sprintf "waiting for OK %d %d" !prepare_ok_count majority);
-      (* Wait for PrepareOk from replicas *)
-      let oks = Eio.Fiber.n_any recieve_closure in
-      List.iter oks ~f:(fun r ->
-        match r with
-        | Message.Replica_message (PrepareOk _) ->
-          (* TODO: validate below *)
+    List.iter
+      ~f:(fun conn ->
+        Eio.Fiber.fork ~sw (fun () ->
+          match receive_message conn with
+          | Message.Replica_message (PrepareOk _) ->
+            (* TODO: validate below *)
 
-          (* if op_number = state.op_number && view_number = state.view_number *)
-          (* then *)
-          prepare_ok_count := !prepare_ok_count + 1
-        | _ ->
-          raise_s [%message "TODO: a client request, put it in a queue" ~here:[%here]])
-    done)
+            (* if op_number = state.op_number && view_number = state.view_number *)
+            (* then *)
+            prepare_ok_count := !prepare_ok_count + 1;
+            if !prepare_ok_count >= majority then Eio.Promise.resolve u ()
+          | _ ->
+            raise_s [%message "TODO: a client request, put it in a queue" ~here:[%here]]))
+      connections;
+    Eio.Promise.await p);
+  Utils.log_info "Consensus done"
 ;;
 
 let resend_last_response v r conn response =
@@ -246,7 +248,7 @@ let resend_last_response v r conn response =
 let handle_client_request ~env ~sw state (req : Message.Request.t) conn =
   match req.op with
   | Operation.Join ->
-    State.enqueue_log state req;
+    let state = State.enqueue_log state req in
     do_consensus ~sw ~env state req;
     (* Now that majority has been reached, time to commit. *)
     let state = primary_commit_and_reply state conn in
@@ -269,7 +271,7 @@ let handle_client_request ~env ~sw state (req : Message.Request.t) conn =
          state)
        else if req.request_number < v.last_request_id
        then
-         state
+         raise_s [%message "TOOD" ~here:[%here]]
          (* TODO *)
          (* resend_last_response
             state.view_number
@@ -277,7 +279,7 @@ let handle_client_request ~env ~sw state (req : Message.Request.t) conn =
             conn
             (reply v.last_result) *)
        else (
-         State.enqueue_log state req;
+         let state = State.enqueue_log state req in
          do_consensus ~sw ~env state req;
          (* Now that majority has been reached, time to commit. *)
          let state = primary_commit_and_reply state conn in
@@ -302,7 +304,7 @@ let handle_message ~sw ~env state connection =
       else if op_number < state.op_number
       then raise_s [%message "TODO: replica is behind" ~here:[%here]]
       else (
-        State.enqueue_log state message;
+        let state = State.enqueue_log state message in
         State.update_client state ~client_id:message.client_id ~op_number None;
         let prepare_ok =
           Message.Replica.PrepareOk

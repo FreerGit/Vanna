@@ -31,7 +31,8 @@ let append_entry t entry =
    ;; *)
 
 let get_log_entry t commit =
-  assert (commit >= t.last_checkpointed);
+  assert (commit > 0);
+  assert (commit > t.last_checkpointed);
   match Deque.find t.entries ~f:(fun e -> e.op_number = commit) with
   | None -> raise_s [%message "TODO" ~here:[%here]]
   | Some e ->
@@ -44,19 +45,16 @@ let%expect_test _ =
   let key, value = Bytes.of_string "k", Bytes.of_string "v" in
   let log = create_log () in
   let req = Message.Request.{ client_id = 0; request_number = 0; op = Join } in
-  append_entry log { op_number = 0; req = { req with op = Join } };
-  append_entry log { op_number = 1; req = { req with op = Operation.Add { key; value } } };
-  append_entry
-    log
-    { op_number = 2; req = { req with op = Operation.Update { key; value } } };
+  append_entry log { op_number = 1; req = { req with op = Join } };
+  append_entry log { op_number = 2; req = { req with op = Operation.Add { key; value } } };
   append_entry log { op_number = 3; req = { req with op = Operation.Remove { key } } };
   let pp e = sexp_of_entry e |> print_s in
-  get_log_entry log 0 |> pp;
   get_log_entry log 1 |> pp;
+  get_log_entry log 2 |> pp;
   [%expect
     {|
-    ((op_number 0) (req ((client_id 0) (request_number 0) (op Join))))
-    ((op_number 1)
+    ((op_number 1) (req ((client_id 0) (request_number 0) (op Join))))
+    ((op_number 2)
      (req ((client_id 0) (request_number 0) (op (Add (key k) (value v))))))
     |}]
 ;;
