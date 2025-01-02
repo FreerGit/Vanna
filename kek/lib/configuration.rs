@@ -17,7 +17,6 @@ impl Configuration {
                     let parsed_port = port.parse().unwrap();
                     SocketAddr::new(parsed_addr, parsed_port)
                 }
-                _ => panic!("Could not parse SocketAddr"),
             };
 
             c.insert_sorted(parsed);
@@ -46,6 +45,7 @@ impl Configuration {
 
 #[cfg(test)]
 mod tests {
+
     use std::net::{IpAddr, Ipv4Addr};
 
     use super::*;
@@ -59,6 +59,15 @@ mod tests {
             "127.0.0.1:9090",
             "10.0.0.1",
         ]);
+    }
+
+    #[quickcheck]
+    fn quickcheck_sorted(addrs: Vec<SocketAddr>) -> bool {
+        let mut config = Configuration(vec![]);
+        for addr in addrs {
+            config.insert_sorted(addr);
+        }
+        config.0.is_sorted()
     }
 
     #[test]

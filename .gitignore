@@ -30,3 +30,5 @@ _opam/
 
 # Copied executable
 *.exe
+
+target*
