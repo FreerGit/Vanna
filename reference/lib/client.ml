@@ -43,28 +43,6 @@ let run_client ~f ~env ~sw ~addr =
   done
 ;;
 
-(* let join_network_request : Client_protocol.Request.t =
-    { client_id = 0; request_number = 0; operation = Join }
-  in *)
-(* let request = build_request join_network_request in *)
-(* Write.with_flow connection (fun to_server -> Write.bytes to_server request); *)
-(* let join_resp = read_response connection in
-  Logs.info (fun f ->
-    f "Payload: %s" (Sexp.to_string_hum @@ Client_protocol.Response.sexp_of_t join_resp));
-  match join_resp with
-  | Join { client_id } ->
-    let add_request : Client_protocol.Request.t =
-      { client_id; request_number = 1; operation = Add { key = "first"; value = "1" } }
-    in
-    let request = build_request add_request in
-    Write.with_flow connection (fun to_server -> Write.bytes to_server request);
-    Utils.log_info "here";
-    let response = read_response connection in
-    Utils.log_info "here";
-    Logs.info (fun f ->
-      f "Payload: %s" (Sexp.to_string_hum @@ Client_protocol.Response.sexp_of_t response))
-  | _ -> raise_s [%message "idk"] *)
-
 let setup_log () =
   Logs_threaded.enable ();
   Fmt_tty.setup_std_outputs ();
