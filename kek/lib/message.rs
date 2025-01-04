@@ -1,3 +1,4 @@
+use quickcheck::{Arbitrary, Gen};
 use serde::{Deserialize, Serialize};
 
 use crate::operation::{OpResult, Operation};
@@ -7,6 +8,19 @@ pub struct Request {
     pub client_id: u32,
     pub request_number: u32,
     pub op: Operation,
+}
+
+impl Arbitrary for Request {
+    fn arbitrary(g: &mut Gen) -> Self {
+        let client_id: u32 = Arbitrary::arbitrary(g);
+        let request_number: u32 = Arbitrary::arbitrary(g);
+        let op: Operation = Arbitrary::arbitrary(g);
+        Self {
+            client_id,
+            request_number,
+            op,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]

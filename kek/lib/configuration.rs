@@ -80,7 +80,7 @@ mod tests {
         let socket = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
         addresses.insert_sorted(socket);
         assert!(addresses.0.len() == 8);
-        assert_eq!(addresses.find_addr(&socket).unwrap(), 5);
+        assert_eq!(addresses.get_id(&socket).unwrap(), 5);
     }
 
     #[test]

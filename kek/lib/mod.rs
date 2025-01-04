@@ -7,6 +7,7 @@ extern crate quickcheck_macros;
 pub mod client;
 pub mod configuration;
 pub mod kvstore;
+pub mod log;
 pub mod message;
 pub mod operation;
 pub mod replica;
