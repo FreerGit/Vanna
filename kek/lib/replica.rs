@@ -1,6 +1,7 @@
 use crate::{
     configuration::Configuration,
     kvstore::KVStore,
+    log::Log,
     message::{Message, Reply},
     operation::OpResult,
     utils::LOGGER,
@@ -9,17 +10,6 @@ use bytes::Bytes;
 use futures_util::{stream::StreamExt, SinkExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
-
-// configuration : Configuration.t
-//         (* TODO: make sure that the invariant holds for the index when updating config. *)
-//     ; replica_number : int (* This is the index into its IP in configuration *)
-//     ; view_number : int (* Initially 0 *)
-//     ; status : Status.t
-//     ; op_number : int (* Initially 0, the most recently recieved request *)
-//     ; log : Log.t (* Ordered list of operations *)
-//     ; commit_number : int (* The most recent commited op_number *)
-//     ; client_table : ClientTable.t
-//     ; store : KVStore.t
 
 #[derive(Clone, Debug)]
 pub enum Status {
@@ -35,7 +25,7 @@ pub struct Replica {
     view: u32,      // view number, initially 0
     status: Status,
     op_num: u32, // the most recently recieved request, initially 0
-    // log
+    log: Log,
     commit: u32, // commit number, the most recent committed op_number
     // client_table
     store: KVStore,
@@ -92,6 +82,7 @@ impl Replica {
             status: Status::Normal,
             op_num: 0,
             commit: 0,
+            log: Log::new(),
             store: KVStore::new(),
         };
 
