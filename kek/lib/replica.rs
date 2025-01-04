@@ -1,12 +1,12 @@
 use crate::{
     configuration::Configuration,
+    kvstore::KVStore,
     message::{Message, Reply},
     operation::OpResult,
     utils::LOGGER,
 };
-use bytes::{Bytes, BytesMut};
+use bytes::Bytes;
 use futures_util::{stream::StreamExt, SinkExt};
-use std::{clone, fmt::format, net::SocketAddr};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 
@@ -37,12 +37,12 @@ pub struct Replica {
     op_num: u32, // the most recently recieved request, initially 0
     // log
     commit: u32, // commit number, the most recent committed op_number
-                 // client_table
-                 // store
+    // client_table
+    store: KVStore,
 }
 
 impl Replica {
-    async fn handle_connection(&mut self, mut connection: TcpStream) {
+    async fn handle_connection(&mut self, connection: TcpStream) {
         let mut framed = Framed::new(connection, LengthDelimitedCodec::new());
         loop {
             let frame = framed.next().await.unwrap();
@@ -92,6 +92,7 @@ impl Replica {
             status: Status::Normal,
             op_num: 0,
             commit: 0,
+            store: KVStore::new(),
         };
 
         loop {

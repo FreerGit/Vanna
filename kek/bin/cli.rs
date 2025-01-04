@@ -4,13 +4,12 @@ use kek::{
     configuration::Configuration,
     message::{Message, Request},
     operation::Operation,
-    replica::{self, Replica},
+    replica::Replica,
     utils,
 };
 use std::{
     io::{stdin, stdout, Write},
     net::SocketAddr,
-    sync,
     thread::sleep,
     time::Duration,
 };
