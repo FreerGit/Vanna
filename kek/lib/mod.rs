@@ -8,4 +8,5 @@ pub mod client;
 pub mod configuration;
 pub mod message;
 pub mod operation;
+pub mod replica;
 pub mod utils;

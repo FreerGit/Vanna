@@ -1,7 +1,7 @@
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum Operation {
     Add { key: Bytes, value: Bytes },
     Update { key: Bytes, value: Bytes },
@@ -9,7 +9,7 @@ pub enum Operation {
     Join,
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum OpResult {
     AddResult(Result<(), ()>),    // TODO: error type
     UpdateResult(Result<(), ()>), // TODO: error type

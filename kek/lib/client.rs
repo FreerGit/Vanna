@@ -1,7 +1,9 @@
-use std::{
-    io::Write,
-    net::{SocketAddr, TcpStream},
-};
+use std::{io::Write, net::SocketAddr};
+
+use bytes::Bytes;
+use futures_util::{SinkExt, StreamExt};
+use tokio::net::TcpStream;
+use tokio_util::codec::{Framed, LengthDelimitedCodec};
 
 use crate::message::{Message, Reply};
 
@@ -11,7 +13,7 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn start<F>(s: SocketAddr, f: F) -> ()
+    pub async fn start<F>(s: SocketAddr, f: F) -> ()
     where
         F: Fn(&Self) -> Option<Message>,
     {
@@ -19,16 +21,18 @@ impl Client {
             client_id: 0,
             request_number: 0,
         };
-        let mut connection = TcpStream::connect(s).expect("failed to connect");
+        let connection = TcpStream::connect(s).await.expect("failed to connect");
+        let mut framed = Framed::new(connection, LengthDelimitedCodec::new());
 
         loop {
             match f(&client) {
                 None => break,
                 Some(request) => {
-                    bincode::serialize_into(&mut connection, &request).unwrap();
-                    // connection.write_all(&bytes).expect("Failed to send bytes");
-                    // connection
-                    let resp = bincode::deserialize_from::<_, Reply>(&mut connection).unwrap();
+                    let serialized = bincode::serialize(&request).unwrap();
+                    framed.send(Bytes::from(serialized)).await.unwrap(); // Send the response
+
+                    let frame = framed.next().await.unwrap().unwrap();
+                    let resp: Reply = bincode::deserialize(&frame).unwrap();
 
                     match resp.result {
                         crate::operation::OpResult::JoinResult(Ok(id)) => {

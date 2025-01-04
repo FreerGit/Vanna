@@ -2,21 +2,21 @@ use serde::{Deserialize, Serialize};
 
 use crate::operation::{OpResult, Operation};
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Request {
     pub client_id: u32,
     pub request_number: u32,
     pub op: Operation,
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Reply {
     pub view_number: u32,
     pub request_number: u32,
     pub result: OpResult,
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum Replica {
     Prepare {
         view_number: u32,
@@ -31,7 +31,7 @@ pub enum Replica {
     },
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum Message {
     ClientRequest(Request),
     ReplicaMessage(Replica),

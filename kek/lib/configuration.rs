@@ -1,6 +1,6 @@
 use std::net::SocketAddr;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Configuration(Vec<SocketAddr>);
 
 impl Configuration {
@@ -38,8 +38,12 @@ impl Configuration {
         self
     }
 
-    pub fn find_addr(&mut self, addr: &SocketAddr) -> Option<usize> {
+    pub fn get_id(&mut self, addr: &SocketAddr) -> Option<usize> {
         self.0.iter().position(|a| addr == a)
+    }
+
+    pub fn find_addr(&self, id: usize) -> SocketAddr {
+        self.0[id]
     }
 }
 
