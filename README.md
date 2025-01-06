@@ -1,6 +1,10 @@
 # Vanna
 A distributed KV store using Viewstamped Replication (VSR), the implemenation is based on the [Viestamped Replication Revisited](https://pmg.csail.mit.edu/papers/vr-revisited.pdf) paper
 
+## Hard assumptions - must not be violated
+
+A client can have **at most one in-flight request**
+
 ## TODOs
 
 The replicas should commit on subsequence Prepare's, look at commit_number

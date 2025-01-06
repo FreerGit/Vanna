@@ -1,14 +1,20 @@
+use std::{collections::VecDeque, sync::Arc};
+
 use crate::{
     configuration::Configuration,
     kvstore::KVStore,
     log::Log,
-    message::{Message, Reply},
+    message::{Message, ReplicaMessage, Reply},
     operation::OpResult,
     utils::LOGGER,
 };
 use bytes::Bytes;
+use crossbeam::channel::Sender;
 use futures_util::{stream::StreamExt, SinkExt};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::{
+    net::{TcpListener, TcpStream},
+    sync::Mutex,
+};
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 
 #[derive(Clone, Debug)]
@@ -18,64 +24,26 @@ pub enum Status {
     Recovering,
 }
 
+pub type ReplicaID = usize;
+
 #[derive(Clone, Debug)]
 pub struct Replica {
     conf: Configuration,
-    replica: usize, // This is the index into conf
-    view: u32,      // view number, initially 0
+    replica: ReplicaID, // This is the index into conf
+    view: u32,          // view number, initially 0
     status: Status,
     op_num: u32, // the most recently recieved request, initially 0
     log: Log,
     commit: u32, // commit number, the most recent committed op_number
     // client_table
     store: KVStore,
+    client_tx: VecDeque<Reply>,
+    replica_tx: VecDeque<(ReplicaID, ReplicaMessage)>,
 }
 
 impl Replica {
-    async fn handle_connection(&mut self, connection: TcpStream) {
-        let mut framed = Framed::new(connection, LengthDelimitedCodec::new());
-        loop {
-            let frame = framed.next().await.unwrap();
-
-            match frame {
-                Ok(bytes) => {
-                    // Deserialize the bytes into a Message
-                    let message: Message = bincode::deserialize(&bytes).unwrap();
-                    let pp = message.clone();
-                    LOGGER.info(move || format!("{:?}", pp));
-
-                    let result = match message {
-                        Message::ClientRequest(request) => match request.op {
-                            crate::operation::Operation::Add { key, value } => todo!(),
-                            crate::operation::Operation::Update { key, value } => todo!(),
-                            crate::operation::Operation::Remove { key } => todo!(),
-                            crate::operation::Operation::Join => OpResult::JoinResult(Ok(1)),
-                        },
-                        Message::ReplicaMessage(replica) => todo!(),
-                    };
-                    let reply = Reply {
-                        view_number: 0,
-                        request_number: 0,
-                        result,
-                    };
-                    let serialized = bincode::serialize(&reply).unwrap();
-
-                    // Send the response (write the length-prefixed frame)
-                    framed.send(Bytes::from(serialized)).await.unwrap();
-                }
-                Err(_) => todo!(),
-            }
-        }
-    }
-
-    pub async fn start(conf: Configuration, replica: usize) {
-        let addr = conf.find_addr(replica);
-        let c = addr.clone();
-
-        LOGGER.info(move || format!("{} {:?}", "Replica started on", c));
-        let listener = TcpListener::bind(addr).await.unwrap();
-
-        let r = Replica {
+    pub fn new(conf: Configuration, replica: ReplicaID) -> Self {
+        Replica {
             conf,
             replica,
             view: 0,
@@ -84,14 +52,8 @@ impl Replica {
             commit: 0,
             log: Log::new(),
             store: KVStore::new(),
-        };
-
-        loop {
-            let (socket, _) = listener.accept().await.unwrap();
-            let mut state = r.clone();
-            tokio::spawn(async move {
-                state.handle_connection(socket).await;
-            });
+            client_tx: VecDeque::new(),
+            replica_tx: VecDeque::new(),
         }
     }
 }

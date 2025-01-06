@@ -4,13 +4,13 @@ use serde::{Deserialize, Serialize};
 use crate::operation::{OpResult, Operation};
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-pub struct Request {
+pub struct ClientRequest {
     pub client_id: u32,
     pub request_number: u32,
     pub op: Operation,
 }
 
-impl Arbitrary for Request {
+impl Arbitrary for ClientRequest {
     fn arbitrary(g: &mut Gen) -> Self {
         let client_id: u32 = Arbitrary::arbitrary(g);
         let request_number: u32 = Arbitrary::arbitrary(g);
@@ -31,10 +31,10 @@ pub struct Reply {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-pub enum Replica {
+pub enum ReplicaMessage {
     Prepare {
         view_number: u32,
-        message: Request,
+        message: ClientRequest,
         op_number: u32,
         commit_number: u32,
     },
@@ -47,6 +47,6 @@ pub enum Replica {
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum Message {
-    ClientRequest(Request),
-    ReplicaMessage(Replica),
+    ClientRequest(ClientRequest),
+    ReplicaMessage(ReplicaMessage),
 }

@@ -2,17 +2,18 @@ use std::collections::VecDeque;
 
 use quickcheck::{Arbitrary, Gen};
 
-use crate::message::Request;
+use crate::message::ClientRequest;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Entry {
     op_num: u64,
-    request: Request,
+    request: ClientRequest,
 }
 
 impl Arbitrary for Entry {
     fn arbitrary(g: &mut Gen) -> Self {
         let op_num: u64 = Arbitrary::arbitrary(g);
-        let request: Request = Arbitrary::arbitrary(g);
+        let request: ClientRequest = Arbitrary::arbitrary(g);
         Self { op_num, request }
     }
 }

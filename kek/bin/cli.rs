@@ -1,25 +1,28 @@
 use bytes::Bytes;
+use futures_util::future::join;
 use kek::{
     client::Client,
     configuration::Configuration,
-    message::{Message, Request},
+    message::{ClientRequest, Message},
     operation::Operation,
-    replica::Replica,
+    replica::{Replica, ReplicaID},
     utils,
 };
 use std::{
     io::{stdin, stdout, Write},
     net::SocketAddr,
-    thread::sleep,
+    rc::Rc,
     time::Duration,
 };
+use tokio::{net::TcpListener, runtime::Builder, task::LocalSet};
+use tokio::{net::TcpStream, time::sleep};
 use utils::LOGGER;
 
 use clap::{Arg, Command};
 
 fn parse_command(input: &str, state: &Client) -> Option<Message> {
     let parts: Vec<&str> = input.split_whitespace().collect();
-    let mut command = Request {
+    let mut command = ClientRequest {
         client_id: state.client_id,
         request_number: state.request_number,
         op: Operation::Join,
@@ -62,11 +65,34 @@ fn get_command(state: &Client) -> Option<Message> {
 async fn start_client_with_stdin(saddr: SocketAddr) {
     LOGGER.info(|| "Client started, enter commands:");
 
-    sleep(Duration::from_millis(10));
+    sleep(Duration::from_millis(10)).await;
     Client::start(saddr, get_command).await;
 }
 
-#[tokio::main]
+async fn handle_connection(r: Rc<Replica>, socket: TcpStream) {
+    println!("KEK");
+}
+
+async fn start_replica(r: Replica, addr: SocketAddr) {
+    let listener = TcpListener::bind(addr).await.unwrap();
+    let replica_rc = Rc::new(r);
+    let local_set = LocalSet::new();
+    local_set
+        .run_until(async move {
+            loop {
+                let (socket, _) = listener.accept().await.unwrap();
+                let c = Rc::clone(&replica_rc);
+                tokio::task::spawn_local(async move {
+                    handle_connection(c, socket).await;
+                });
+
+                println!("KEKbbb");
+            }
+        })
+        .await;
+}
+
+#[tokio::main(flavor = "current_thread")]
 async fn main() {
     let matches = Command::new("Node CLI")
         .about("Client or Replica node")
@@ -103,14 +129,17 @@ async fn main() {
         start_client_with_stdin(primary_sockaddr).await;
     } else if let Some(replica_matches) = matches.subcommand_matches("run-replica") {
         let addrs = replica_matches.get_one::<String>("addresses").unwrap();
-        let replica_id: usize = replica_matches
+        let replica_id: ReplicaID = replica_matches
             .get_one::<String>("replica")
             .unwrap()
             .parse()
             .unwrap();
         let seperated = String::as_str(addrs).split(',').collect();
         let conf = Configuration::new(seperated);
-        Replica::start(conf, replica_id).await;
+        let addr = conf.find_addr(replica_id);
+        let replica = Replica::new(conf, replica_id);
+
+        start_replica(replica, addr).await;
     }
 
     LOGGER.shutdown();
