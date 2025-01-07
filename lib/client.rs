@@ -1,12 +1,13 @@
 use std::net::SocketAddr;
 
+use crate::message::{self, IOMessage::ClientRequest};
 use bytes::Bytes;
 use futures_util::{SinkExt, StreamExt};
 use tokio::net::TcpStream;
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 
 use crate::{
-    message::{ClientRequest, Reply},
+    message::Reply,
     types::{ClientID, RequestNumber},
 };
 
@@ -18,7 +19,7 @@ pub struct Client {
 impl Client {
     pub async fn start<F>(s: SocketAddr, f: F) -> ()
     where
-        F: Fn(&Self) -> Option<ClientRequest>,
+        F: Fn(&Self) -> Option<message::ClientRequest>,
     {
         let mut client = Client {
             client_id: 0,
@@ -31,7 +32,7 @@ impl Client {
             match f(&client) {
                 None => break,
                 Some(request) => {
-                    let serialized = bincode::serialize(&request).unwrap();
+                    let serialized = bincode::serialize(&ClientRequest(request)).unwrap();
                     framed.send(Bytes::from(serialized)).await.unwrap(); // Send the response
 
                     let frame = framed.next().await.unwrap().unwrap();

@@ -1,23 +1,31 @@
-name: CI
+name: Rust CI
 
-on: [push]
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
 
 jobs:
-  backend-tests:
+  build:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
 
-      - name: Set-up OCaml
-        uses: ocaml/setup-ocaml@v3
+      - name: Set up Rust
+        uses: actions/setup-rust@v1
         with:
-          ocaml-compiler: ocaml-variants.5.2.1+options
-          
+          rust-version: stable
+
+      - name: Install Clippy
+        run: rustup component add clippy
+
       - name: Run tests
-        run: |
-          opam install dune --yes
-          opam install . --deps-only --yes
-          eval $(opam env)
-          opam list
-          dune runtest
+        run: cargo test --workspace --all-targets --all-features
+
+      - name: Run Clippy
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings

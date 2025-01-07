@@ -1,32 +1,38 @@
 use hashbrown::HashMap;
 
-use crate::operation::OpResult;
+use crate::{
+    operation::OpResult,
+    types::{ClientID, OpNumber},
+};
 
 #[derive(Clone, Debug, Default)]
 pub struct Entry {
-    last_request_id: u64,
+    last_request_id: ClientID,
     last_result: Option<OpResult>, // None implies not executed
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct ClienTable {
-    table: HashMap<u64, Entry>,
+    table: HashMap<ClientID, Entry>,
 }
 
 impl ClienTable {
-    pub fn new() -> Self {
-        Self {
-            table: HashMap::new(),
-        }
-    }
-
-    pub fn add_client(&mut self) -> u64 {
-        let new_client = self.table.iter().max_by_key(|k| k.0).map_or(0, |k| k.0 + 1);
+    pub fn add_client(&mut self) -> ClientID {
+        let new_client = self.table.iter().max_by_key(|k| k.0).map_or(1, |k| k.0 + 1);
         self.table.insert(new_client, Entry::default());
-        return new_client;
+        new_client
     }
 
-    pub fn update_client(&mut self, id: u64, op_number: u64, result: Option<OpResult>) -> () {
+    pub fn find_client(&self, id: ClientID) -> Option<&Entry> {
+        self.table.get(&id)
+    }
+
+    pub fn update_client(
+        &mut self,
+        id: ClientID,
+        op_number: OpNumber,
+        result: Option<OpResult>,
+    ) -> () {
         let update = self.table.insert(
             id,
             Entry {
@@ -44,15 +50,15 @@ mod tests {
 
     #[test]
     fn add_client() {
-        let mut ct = ClienTable::new();
-        for i in 0..=10 {
+        let mut ct = ClienTable::default();
+        for i in 1..=10 {
             assert_eq!(ct.add_client(), i);
         }
     }
 
     #[test]
     fn update_client() {
-        let mut ct = ClienTable::new();
+        let mut ct = ClienTable::default();
         let id = ct.add_client();
         ct.update_client(id, 5, None);
 
@@ -62,7 +68,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn update_client_fails() {
-        let mut ct = ClienTable::new();
+        let mut ct = ClienTable::default();
         ct.update_client(0, 1, None);
     }
 }

@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     operation::{OpResult, Operation},
-    types::{ClientID, RequestNumber},
+    types::{ClientID, CommitID, OpNumber, ReplicaID, RequestNumber, ViewNumber},
 };
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -36,18 +36,24 @@ pub struct Reply {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Prepare {
+    pub view_number: ViewNumber,
+    pub op: Operation,
+    pub op_number: OpNumber,
+    pub commit_number: CommitID,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PrepareOk {
+    pub view_number: ViewNumber,
+    pub op_number: OpNumber,
+    pub replica_number: ReplicaID,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ReplicaMessage {
-    Prepare {
-        view_number: u32,
-        message: ClientRequest,
-        op_number: u32,
-        commit_number: u32,
-    },
-    PrepareOk {
-        view_number: u32,
-        op_number: u32,
-        replica_number: u32,
-    },
+    Prepare(Prepare),
+    PrepareOk(PrepareOk),
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]

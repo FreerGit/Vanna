@@ -1,18 +1,12 @@
 use bytes::Bytes;
 use hashbrown::HashMap;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct KVStore {
     store: HashMap<Bytes, Bytes>,
 }
 
 impl KVStore {
-    pub fn new() -> Self {
-        KVStore {
-            store: HashMap::new(),
-        }
-    }
-
     pub fn set(&mut self, k: Bytes, v: Bytes) -> () {
         let i = self.store.insert(k, v);
         assert!(i.is_none())

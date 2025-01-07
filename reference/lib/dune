@@ -1,7 +1,0 @@
-(library
- (name vanna)
- (public_name vanna)
- (inline_tests)
- (libraries core core_unix eio eio_main logs logs.fmt logs.threaded fmt.tty)
- (preprocess
-  (pps ppx_jane ppx_sexp_message ppx_bin_prot ppx_deriving.show)))

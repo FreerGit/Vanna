@@ -6,8 +6,9 @@ A distributed KV store using Viewstamped Replication (VSR), the implemenation is
 A client can have **at most one in-flight request**
 
 ## TODOs
-
 <!--  -->
+Join
+
 replicas should keep the conenctions open between them.
 
 <!--  -->

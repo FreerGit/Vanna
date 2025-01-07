@@ -10,12 +10,17 @@ use kek::{
     utils,
 };
 use std::{
+    cell::RefCell,
     io::{stdin, stdout, Write},
     net::SocketAddr,
     rc::Rc,
     time::Duration,
 };
-use tokio::{net::TcpListener, select, task::LocalSet};
+use tokio::{
+    net::TcpListener,
+    select,
+    task::{self, LocalSet},
+};
 use tokio::{net::TcpStream, time::sleep};
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 use utils::LOGGER;
@@ -65,41 +70,44 @@ fn get_command(state: &Client) -> Option<ClientRequest> {
 }
 
 async fn start_client_with_stdin(saddr: SocketAddr) {
-    LOGGER.info(|| "Client started, enter commands:");
+    LOGGER.with(|l| {
+        l.info(|| "Client started, enter commands:");
+    });
 
     sleep(Duration::from_millis(10)).await;
     Client::start(saddr, get_command).await;
 }
 
-async fn handle_connection(r: Rc<Replica>, socket: TcpStream) {
+async fn handle_connection(r: Rc<RefCell<Replica>>, socket: TcpStream) {
     let mut framed = Framed::new(socket, LengthDelimitedCodec::new());
+    let mut replica = r.borrow_mut();
     loop {
         let frame = framed.next().await.unwrap();
 
         match frame {
             Ok(bytes) => {
                 let message: IOMessage = bincode::deserialize(&bytes).unwrap();
-                let pp = message.clone();
-                LOGGER.info(move || format!("{:?}", pp));
 
-                let result = match message {
-                    IOMessage::ClientRequest(request) => match request.op {
-                        Operation::Add { key, value } => todo!(),
-                        Operation::Update { key, value } => todo!(),
-                        Operation::Remove { key } => todo!(),
-                        Operation::Join => OpResult::JoinResult(Ok(1)),
-                    },
-                    IOMessage::ReplicaMessage(replica) => todo!(),
-                };
-                let reply = Reply {
-                    view_number: 0,
-                    request_number: 0,
-                    result,
-                };
-                let serialized = bincode::serialize(&reply).unwrap();
+                replica.on_message(message);
 
-                // Send the response (write the length-prefixed frame)
-                framed.send(Bytes::from(serialized)).await.unwrap();
+                // // Check for outgoing client messages
+                // if let Some(reply) = replica.dequeue_client_reply() {
+                //     let serialized = bincode::serialize(&reply).unwrap();
+
+                //     // Send the response (write the length-prefixed frame)
+                //     framed.send(Bytes::from(serialized)).await.unwrap();
+                // }
+
+                // Check for outgoing replica messages
+                let replica_messages = replica.dequeue_replica_messages();
+                for (addr, msg) in replica_messages {
+                    task::spawn_local(async move {
+                        let connection = TcpStream::connect(addr).await.expect("failed to connect");
+                        let mut framed = Framed::new(connection, LengthDelimitedCodec::new());
+                        let serialized = bincode::serialize(&msg).unwrap();
+                        framed.send(Bytes::from(serialized)).await.unwrap()
+                    });
+                }
             }
             Err(_) => todo!(),
         }
@@ -108,33 +116,20 @@ async fn handle_connection(r: Rc<Replica>, socket: TcpStream) {
 
 async fn start_replica(r: Replica, addr: SocketAddr) {
     let listener = TcpListener::bind(addr).await.unwrap();
-    let replica_rc = Rc::new(r.clone());
+    let replica_rc = Rc::new(RefCell::new(r.clone()));
 
     let local_set = LocalSet::new();
     local_set
         .run_until(async move {
             loop {
-                select! {
-                    // Accept new connections
-                    Ok((socket, _)) = listener.accept() => {
-                        let c = Rc::clone(&replica_rc);
-                        tokio::task::spawn_local(async move {
-                            handle_connection(c, socket).await;
-                        });
-                    }
+                if let Ok((socket, _)) = listener.accept().await {
+                    let c = Rc::clone(&replica_rc);
+                    tokio::task::spawn_local(async move {
+                        println!("2");
 
-                    // Check for outgoing client messages
-                    Some(reply) = r.dequeue_client_reply() => {
-                        todo!()
-                    }
-
-                    // Check for outgoing replica messages
-                    Some((addr, message)) = r.dequeue_replica_message() => {
-                        todo!()
-                    }
+                        handle_connection(c, socket).await;
+                    });
                 }
-
-                println!("KEKbbb");
             }
         })
         .await;
@@ -190,5 +185,7 @@ async fn main() {
         start_replica(replica, addr).await;
     }
 
-    LOGGER.shutdown();
+    LOGGER.with(|l| {
+        l.shutdown();
+    })
 }
