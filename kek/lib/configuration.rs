@@ -1,5 +1,7 @@
 use std::net::SocketAddr;
 
+use crate::types::{ReplicaID, ViewNumber};
+
 #[derive(Clone, Debug)]
 pub struct Configuration(Vec<SocketAddr>);
 
@@ -44,6 +46,10 @@ impl Configuration {
 
     pub fn find_addr(&self, id: usize) -> SocketAddr {
         self.0[id]
+    }
+
+    pub fn primary_id(&self, view_number: ViewNumber) -> ReplicaID {
+        view_number % self.0.len()
     }
 }
 

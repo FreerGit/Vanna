@@ -442,7 +442,6 @@ dependencies = [
  "bincode",
  "bytes",
  "clap",
- "crossbeam",
  "futures-util",
  "hashbrown 0.15.2",
  "once_cell",

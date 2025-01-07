@@ -31,9 +31,9 @@ impl Arbitrary for Operation {
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum OpResult {
-    AddResult(Result<(), ()>),    // TODO: error type
-    UpdateResult(Result<(), ()>), // TODO: error type
-    RemoveResult(Result<(), ()>), // TODO: error type
-    JoinResult(Result<u32, ()>),  // TODO: error type
+    AddResult(Result<(), ()>),     // TODO: error type
+    UpdateResult(Result<(), ()>),  // TODO: error type
+    RemoveResult(Result<(), ()>),  // TODO: error type
+    JoinResult(Result<usize, ()>), // TODO: error type
     Outdated,
 }

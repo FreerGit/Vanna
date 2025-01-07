@@ -1,19 +1,24 @@
+use std::fmt::Debug;
+
 use quickcheck::{Arbitrary, Gen};
 use serde::{Deserialize, Serialize};
 
-use crate::operation::{OpResult, Operation};
+use crate::{
+    operation::{OpResult, Operation},
+    types::{ClientID, RequestNumber},
+};
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ClientRequest {
-    pub client_id: u32,
-    pub request_number: u32,
+    pub client_id: ClientID,
+    pub request_number: RequestNumber,
     pub op: Operation,
 }
 
 impl Arbitrary for ClientRequest {
     fn arbitrary(g: &mut Gen) -> Self {
-        let client_id: u32 = Arbitrary::arbitrary(g);
-        let request_number: u32 = Arbitrary::arbitrary(g);
+        let client_id = Arbitrary::arbitrary(g);
+        let request_number = Arbitrary::arbitrary(g);
         let op: Operation = Arbitrary::arbitrary(g);
         Self {
             client_id,
@@ -45,8 +50,18 @@ pub enum ReplicaMessage {
     },
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-pub enum Message {
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum IOMessage {
     ClientRequest(ClientRequest),
     ReplicaMessage(ReplicaMessage),
+}
+
+/// Just get the inner struct
+impl Debug for IOMessage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ClientRequest(arg0) => write!(f, "{:?}", arg0),
+            Self::ReplicaMessage(arg0) => write!(f, "{:?}", arg0),
+        }
+    }
 }

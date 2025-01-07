@@ -23,5 +23,4 @@ futures-util = { version = "0.3.31", features = ["sink"] }
 hashbrown = "0.15.2"
 quickcheck = "1.0.3"
 quickcheck_macros = "1.0.0"
-crossbeam = "0.8.4"
 

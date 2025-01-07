@@ -1,11 +1,12 @@
 use bytes::Bytes;
-use futures_util::future::join;
+use futures_util::{SinkExt, StreamExt};
 use kek::{
     client::Client,
     configuration::Configuration,
-    message::{ClientRequest, Message},
-    operation::Operation,
-    replica::{Replica, ReplicaID},
+    message::{ClientRequest, IOMessage, Reply},
+    operation::{OpResult, Operation},
+    replica::Replica,
+    types::ReplicaID,
     utils,
 };
 use std::{
@@ -14,13 +15,14 @@ use std::{
     rc::Rc,
     time::Duration,
 };
-use tokio::{net::TcpListener, runtime::Builder, task::LocalSet};
+use tokio::{net::TcpListener, select, task::LocalSet};
 use tokio::{net::TcpStream, time::sleep};
+use tokio_util::codec::{Framed, LengthDelimitedCodec};
 use utils::LOGGER;
 
 use clap::{Arg, Command};
 
-fn parse_command(input: &str, state: &Client) -> Option<Message> {
+fn parse_command(input: &str, state: &Client) -> Option<ClientRequest> {
     let parts: Vec<&str> = input.split_whitespace().collect();
     let mut command = ClientRequest {
         client_id: state.client_id,
@@ -28,29 +30,29 @@ fn parse_command(input: &str, state: &Client) -> Option<Message> {
         op: Operation::Join,
     };
     match parts.as_slice() {
-        ["Join"] => Some(Message::ClientRequest(command)),
+        ["Join"] => Some(command),
         ["Add", key, value] => {
             let key = Bytes::from(key.to_string());
             let value = Bytes::from(value.to_string());
             command.op = Operation::Add { key, value };
-            Some(Message::ClientRequest(command))
+            Some(command)
         }
         ["Update", key, value] => {
             let key = Bytes::from(key.to_string());
             let value = Bytes::from(value.to_string());
             command.op = Operation::Update { key, value };
-            Some(Message::ClientRequest(command))
+            Some(command)
         }
         ["Remove", key] => {
             let key = Bytes::from(key.to_string());
             command.op = Operation::Remove { key };
-            Some(Message::ClientRequest(command))
+            Some(command)
         }
         _ => None,
     }
 }
 
-fn get_command(state: &Client) -> Option<Message> {
+fn get_command(state: &Client) -> Option<ClientRequest> {
     // LOGGER.info(|| "> ");
     print!("> ");
     stdout().flush().unwrap();
@@ -70,21 +72,67 @@ async fn start_client_with_stdin(saddr: SocketAddr) {
 }
 
 async fn handle_connection(r: Rc<Replica>, socket: TcpStream) {
-    println!("KEK");
+    let mut framed = Framed::new(socket, LengthDelimitedCodec::new());
+    loop {
+        let frame = framed.next().await.unwrap();
+
+        match frame {
+            Ok(bytes) => {
+                let message: IOMessage = bincode::deserialize(&bytes).unwrap();
+                let pp = message.clone();
+                LOGGER.info(move || format!("{:?}", pp));
+
+                let result = match message {
+                    IOMessage::ClientRequest(request) => match request.op {
+                        Operation::Add { key, value } => todo!(),
+                        Operation::Update { key, value } => todo!(),
+                        Operation::Remove { key } => todo!(),
+                        Operation::Join => OpResult::JoinResult(Ok(1)),
+                    },
+                    IOMessage::ReplicaMessage(replica) => todo!(),
+                };
+                let reply = Reply {
+                    view_number: 0,
+                    request_number: 0,
+                    result,
+                };
+                let serialized = bincode::serialize(&reply).unwrap();
+
+                // Send the response (write the length-prefixed frame)
+                framed.send(Bytes::from(serialized)).await.unwrap();
+            }
+            Err(_) => todo!(),
+        }
+    }
 }
 
 async fn start_replica(r: Replica, addr: SocketAddr) {
     let listener = TcpListener::bind(addr).await.unwrap();
-    let replica_rc = Rc::new(r);
+    let replica_rc = Rc::new(r.clone());
+
     let local_set = LocalSet::new();
     local_set
         .run_until(async move {
             loop {
-                let (socket, _) = listener.accept().await.unwrap();
-                let c = Rc::clone(&replica_rc);
-                tokio::task::spawn_local(async move {
-                    handle_connection(c, socket).await;
-                });
+                select! {
+                    // Accept new connections
+                    Ok((socket, _)) = listener.accept() => {
+                        let c = Rc::clone(&replica_rc);
+                        tokio::task::spawn_local(async move {
+                            handle_connection(c, socket).await;
+                        });
+                    }
+
+                    // Check for outgoing client messages
+                    Some(reply) = r.dequeue_client_reply() => {
+                        todo!()
+                    }
+
+                    // Check for outgoing replica messages
+                    Some((addr, message)) = r.dequeue_replica_message() => {
+                        todo!()
+                    }
+                }
 
                 println!("KEKbbb");
             }

@@ -1,21 +1,24 @@
-use std::{io::Write, net::SocketAddr};
+use std::net::SocketAddr;
 
 use bytes::Bytes;
 use futures_util::{SinkExt, StreamExt};
 use tokio::net::TcpStream;
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 
-use crate::message::{Message, Reply};
+use crate::{
+    message::{ClientRequest, Reply},
+    types::{ClientID, RequestNumber},
+};
 
 pub struct Client {
-    pub client_id: u32,
-    pub request_number: u32,
+    pub client_id: ClientID,
+    pub request_number: RequestNumber,
 }
 
 impl Client {
     pub async fn start<F>(s: SocketAddr, f: F) -> ()
     where
-        F: Fn(&Self) -> Option<Message>,
+        F: Fn(&Self) -> Option<ClientRequest>,
     {
         let mut client = Client {
             client_id: 0,
@@ -56,6 +59,6 @@ impl Client {
             }
         }
 
-        while let Some(com) = f(&client) {}
+        // while let Some(com) = f(&client) {}
     }
 }

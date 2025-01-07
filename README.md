@@ -7,6 +7,10 @@ A client can have **at most one in-flight request**
 
 ## TODOs
 
+<!--  -->
+replicas should keep the conenctions open between them.
+
+<!--  -->
 The replicas should commit on subsequence Prepare's, look at commit_number
 
 Checkpointing, im unsure when and how I truncate the Log. Gotta continue with the paper.
