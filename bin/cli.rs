@@ -70,9 +70,7 @@ fn get_command(state: &Client) -> Option<ClientRequest> {
 }
 
 async fn start_client_with_stdin(saddr: SocketAddr) {
-    LOGGER.with(|l| {
-        l.info(|| "Client started, enter commands:");
-    });
+    LOGGER.with(|l| l.info(|| "Client started, enter commands:"));
 
     sleep(Duration::from_millis(10)).await;
     Client::start(saddr, get_command).await;
@@ -82,39 +80,54 @@ async fn handle_connection(r: Rc<RefCell<Replica>>, socket: TcpStream) {
     let mut framed = Framed::new(socket, LengthDelimitedCodec::new());
     let mut replica = r.borrow_mut();
     loop {
-        let frame = framed.next().await.unwrap();
+        match framed.next().await {
+            None => {
+                LOGGER.with(|l| l.debug(|| "Close"));
+                break;
+            }
+            Some(frame) => {
+                match frame {
+                    Ok(bytes) => {
+                        let message: IOMessage = bincode::deserialize(&bytes).unwrap();
 
-        match frame {
-            Ok(bytes) => {
-                let message: IOMessage = bincode::deserialize(&bytes).unwrap();
+                        let mut replica = r.borrow_mut();
+                        replica.on_message(message);
 
-                replica.on_message(message);
+                        // // Check for outgoing client messages
+                        // if let Some(reply) = replica.dequeue_client_reply() {
+                        //     let serialized = bincode::serialize(&reply).unwrap();
 
-                // // Check for outgoing client messages
-                // if let Some(reply) = replica.dequeue_client_reply() {
-                //     let serialized = bincode::serialize(&reply).unwrap();
+                        //     // Send the response (write the length-prefixed frame)
+                        //     framed.send(Bytes::from(serialized)).await.unwrap();
+                        // }
 
-                //     // Send the response (write the length-prefixed frame)
-                //     framed.send(Bytes::from(serialized)).await.unwrap();
-                // }
-
-                // Check for outgoing replica messages
-                let replica_messages = replica.dequeue_replica_messages();
-                for (addr, msg) in replica_messages {
-                    task::spawn_local(async move {
-                        let connection = TcpStream::connect(addr).await.expect("failed to connect");
-                        let mut framed = Framed::new(connection, LengthDelimitedCodec::new());
-                        let serialized = bincode::serialize(&msg).unwrap();
-                        framed.send(Bytes::from(serialized)).await.unwrap()
-                    });
+                        // Check for outgoing replica messages
+                        // let replica_messages = r.borrow_mut().dequeue_replica_messages();
+                        for (addr, msg) in replica.dequeue_replica_messages() {
+                            task::spawn_local(async move {
+                                let connection =
+                                    TcpStream::connect(addr).await.expect("failed to connect");
+                                let mut framed =
+                                    Framed::new(connection, LengthDelimitedCodec::new());
+                                let serialized =
+                                    bincode::serialize(&IOMessage::ReplicaMessage(msg)).unwrap();
+                                framed.send(Bytes::from(serialized)).await.unwrap();
+                                LOGGER.with(|l| l.debug(|| "Sent"));
+                            });
+                        }
+                    }
+                    Err(_) => todo!(),
                 }
             }
-            Err(_) => todo!(),
         }
     }
 }
 
 async fn start_replica(r: Replica, addr: SocketAddr) {
+    let a = addr.clone();
+    LOGGER.with(|l| {
+        l.debug(move || format!("Starting replica {:?}", a));
+    });
     let listener = TcpListener::bind(addr).await.unwrap();
     let replica_rc = Rc::new(RefCell::new(r.clone()));
 
@@ -125,8 +138,6 @@ async fn start_replica(r: Replica, addr: SocketAddr) {
                 if let Ok((socket, _)) = listener.accept().await {
                     let c = Rc::clone(&replica_rc);
                     tokio::task::spawn_local(async move {
-                        println!("2");
-
                         handle_connection(c, socket).await;
                     });
                 }
