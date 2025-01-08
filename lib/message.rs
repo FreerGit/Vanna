@@ -1,4 +1,4 @@
-use std::fmt::Debug;
+use std::{fmt::Debug, net::SocketAddr};
 
 use quickcheck::{Arbitrary, Gen};
 use serde::{Deserialize, Serialize};
@@ -56,18 +56,14 @@ pub enum ReplicaMessage {
     PrepareOk(PrepareOk),
 }
 
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub enum IOMessage {
-    ClientRequest(ClientRequest),
-    ReplicaMessage(ReplicaMessage),
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub enum IORequest {
+    Client(ClientRequest),
+    Replica(ReplicaMessage),
 }
 
-/// Just get the inner struct
-impl Debug for IOMessage {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::ClientRequest(arg0) => write!(f, "{:?}", arg0),
-            Self::ReplicaMessage(arg0) => write!(f, "{:?}", arg0),
-        }
-    }
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub enum IOResponse {
+    Client(Reply),
+    Replica((SocketAddr, ReplicaMessage)),
 }

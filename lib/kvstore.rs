@@ -3,28 +3,28 @@ use hashbrown::HashMap;
 
 #[derive(Clone, Debug, Default)]
 pub struct KVStore {
-    store: HashMap<Bytes, Bytes>,
+  store: HashMap<Bytes, Bytes>,
 }
 
 impl KVStore {
-    pub fn set(&mut self, k: Bytes, v: Bytes) -> () {
-        let i = self.store.insert(k, v);
-        assert!(i.is_none())
-    }
+  pub fn set(&mut self, k: Bytes, v: Bytes) {
+    let i = self.store.insert(k, v);
+    assert!(i.is_none())
+  }
 
-    pub fn get(&self, k: Bytes) -> Option<&Bytes> {
-        match self.store.get(&k) {
-            Some(v) => Some(v),
-            None => todo!(),
-        }
+  pub fn get(&self, k: Bytes) -> Option<&Bytes> {
+    match self.store.get(&k) {
+      Some(v) => Some(v),
+      None => todo!(),
     }
+  }
 
-    pub fn remove(&mut self, k: Bytes) -> () {
-        match self.store.remove(&k) {
-            Some(_) => (),
-            None => todo!(),
-        }
+  pub fn remove(&mut self, k: Bytes) {
+    match self.store.remove(&k) {
+      Some(_) => (),
+      None => todo!(),
     }
+  }
 }
 
 // open! Core

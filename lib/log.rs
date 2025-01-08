@@ -1,19 +1,16 @@
 use std::collections::VecDeque;
 
-use quickcheck::{Arbitrary, Gen};
-
 use crate::{
-    message::ClientRequest,
-    operation::Operation,
-    types::{OpNumber, ViewNumber},
+  operation::Operation,
+  types::{OpNumber, ViewNumber},
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct Log {
-    view: ViewNumber,
-    start_op_number: OpNumber,
-    end_op_number: OpNumber,
-    pub entries: VecDeque<Operation>,
+  view: ViewNumber,
+  start_op_number: OpNumber,
+  end_op_number: OpNumber,
+  pub entries: VecDeque<Operation>,
 }
 
 // impl Arbitrary for Log {
@@ -28,39 +25,39 @@ pub struct Log {
 // }
 
 impl Log {
-    pub fn append(&mut self, view_number: ViewNumber, op: Operation) -> OpNumber {
-        self.view = view_number;
-        self.end_op_number += 1;
-        if self.entries.is_empty() {
-            self.start_op_number = self.end_op_number;
-        }
-        self.entries.push_back(op);
-        self.end_op_number
+  pub fn append(&mut self, view_number: ViewNumber, op: Operation) -> OpNumber {
+    self.view = view_number;
+    self.end_op_number += 1;
+    if self.entries.is_empty() {
+      self.start_op_number = self.end_op_number;
     }
+    self.entries.push_back(op);
+    self.end_op_number
+  }
 
-    // pub fn get_entry(&self, op_num: OpNumber) -> Option<&Entry> {
-    //     match op_num <= self.checkpoint {
-    //         true => None,
-    //         false => self.entries.iter().find(|e| e.op_num == op_num),
-    //     }
-    // }
+  // pub fn get_entry(&self, op_num: OpNumber) -> Option<&Entry> {
+  //     match op_num <= self.checkpoint {
+  //         true => None,
+  //         false => self.entries.iter().find(|e| e.op_num == op_num),
+  //     }
+  // }
 
-    // pub fn advance_checkpoint(&mut self, new_checkpoint: OpNumber) {
-    //     assert!(
-    //         new_checkpoint >= self.checkpoint,
-    //         "Checkpoint cannot move backwards."
-    //     );
-    //     self.checkpoint = new_checkpoint;
-    //     self.entries.retain(|e| e.op_num > self.checkpoint);
-    // }
+  // pub fn advance_checkpoint(&mut self, new_checkpoint: OpNumber) {
+  //     assert!(
+  //         new_checkpoint >= self.checkpoint,
+  //         "Checkpoint cannot move backwards."
+  //     );
+  //     self.checkpoint = new_checkpoint;
+  //     self.entries.retain(|e| e.op_num > self.checkpoint);
+  // }
 
-    // pub fn last_op_num(&self) -> Option<OpNumber> {
-    //     self.entries.back().map(|e| e.op_num)
-    // }
+  // pub fn last_op_num(&self) -> Option<OpNumber> {
+  //     self.entries.back().map(|e| e.op_num)
+  // }
 
-    // pub fn size(&self) -> usize {
-    //     self.entries.len()
-    // }
+  // pub fn size(&self) -> usize {
+  //     self.entries.len()
+  // }
 }
 
 // #[cfg(test)]

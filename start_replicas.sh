@@ -5,9 +5,9 @@ BUILD_STATUS=$?
 
 if [ $BUILD_STATUS -eq 0 ]; then
   if [[ "$(uname -o)" == "GNU/Linux" ]]; then
-    tmux new-session -s my_session -d "source ~/.profile && cd ~/dev/vanna && ./target/debug/cli run-replica --addresses 127.0.0.1:3000,127.0.0.1:3001,127.0.0.1:3002 --replica 2"
-    tmux split-window -h "source ~/.profile && cd ~/dev/vanna && ./target/debug/cli run-replica --addresses 127.0.0.1:3000,127.0.0.1:3001,127.0.0.1:3002 --replica 1"
-    tmux split-window -v "source ~/.profile && cd ~/dev/vanna && ./target/debug/cli run-replica --addresses 127.0.0.1:3000,127.0.0.1:3001,127.0.0.1:3002 --replica 0"
+    tmux new-session -s my_session -d "source ~/.profile && cd ~/dev/vanna && RUST_LOG=debug ./target/debug/cli run-replica --addresses 127.0.0.1:3000,127.0.0.1:3001,127.0.0.1:3002 --replica 2"
+    tmux split-window -h "source ~/.profile && cd ~/dev/vanna && RUST_LOG=debug ./target/debug/cli run-replica --addresses 127.0.0.1:3000,127.0.0.1:3001,127.0.0.1:3002 --replica 1"
+    tmux split-window -v "source ~/.profile && cd ~/dev/vanna && RUST_LOG=debug ./target/debug/cli run-replica --addresses 127.0.0.1:3000,127.0.0.1:3001,127.0.0.1:3002 --replica 0"
     
     tmux select-layout tiled
     tmux set-option -g mouse on
