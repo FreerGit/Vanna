@@ -4,55 +4,55 @@ use crate::types::{ReplicaID, ViewNumber};
 
 #[derive(Clone, Debug, Default)]
 pub struct Configuration {
-    pub replicas: Vec<SocketAddr>,
+  pub replicas: Vec<SocketAddr>,
 }
 
 impl Configuration {
-    pub fn new(addrs: Vec<&str>) -> Self {
-        let mut c = Configuration::default();
-        for a in addrs {
-            let parsed = match a.split_once(':') {
-                None => {
-                    let parsed_addr = a.parse().unwrap();
-                    SocketAddr::new(parsed_addr, 80)
-                }
-                Some((addr, port)) => {
-                    let parsed_addr = addr.parse().unwrap();
-                    let parsed_port = port.parse().unwrap();
-                    SocketAddr::new(parsed_addr, parsed_port)
-                }
-            };
-
-            c.insert_sorted(parsed);
+  pub fn new(addrs: Vec<&str>) -> Self {
+    let mut c = Configuration::default();
+    for a in addrs {
+      let parsed = match a.split_once(':') {
+        None => {
+          let parsed_addr = a.parse().unwrap();
+          SocketAddr::new(parsed_addr, 80)
         }
-        c
-    }
-
-    pub fn insert_sorted(&mut self, new_entry: SocketAddr) -> &mut Self {
-        if let Some(index) = self.replicas.iter().position(|addr| &new_entry <= addr) {
-            self.replicas.insert(index, new_entry);
-        } else {
-            self.replicas.push(new_entry);
+        Some((addr, port)) => {
+          let parsed_addr = addr.parse().unwrap();
+          let parsed_port = port.parse().unwrap();
+          SocketAddr::new(parsed_addr, parsed_port)
         }
-        self
-    }
+      };
 
-    pub fn remove(&mut self, t: &SocketAddr) -> &mut Self {
-        self.replicas.retain(|addr| t != addr);
-        self
+      c.insert_sorted(parsed);
     }
+    c
+  }
 
-    pub fn get_id(&mut self, addr: &SocketAddr) -> Option<usize> {
-        self.replicas.iter().position(|a| addr == a)
+  pub fn insert_sorted(&mut self, new_entry: SocketAddr) -> &mut Self {
+    if let Some(index) = self.replicas.iter().position(|addr| &new_entry <= addr) {
+      self.replicas.insert(index, new_entry);
+    } else {
+      self.replicas.push(new_entry);
     }
+    self
+  }
 
-    pub fn find_addr(&self, id: usize) -> SocketAddr {
-        self.replicas[id]
-    }
+  pub fn remove(&mut self, t: &SocketAddr) -> &mut Self {
+    self.replicas.retain(|addr| t != addr);
+    self
+  }
 
-    pub fn primary_id(&self, view_number: ViewNumber) -> ReplicaID {
-        view_number % self.replicas.len()
-    }
+  pub fn get_id(&mut self, addr: &SocketAddr) -> Option<usize> {
+    self.replicas.iter().position(|a| addr == a)
+  }
+
+  pub fn find_addr(&self, id: usize) -> SocketAddr {
+    self.replicas[id]
+  }
+
+  pub fn primary_id(&self, view_number: ViewNumber) -> ReplicaID {
+    view_number % self.replicas.len()
+  }
 }
 
 // #[cfg(test)]
