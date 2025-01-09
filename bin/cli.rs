@@ -1,5 +1,4 @@
 use bytes::Bytes;
-use crossbeam::channel::unbounded;
 use kek::{
   client::Client, configuration::Configuration, message::ClientRequest, network::start_io_layer,
   operation::Operation, replica::Replica, types::ReplicaID,
@@ -45,7 +44,6 @@ fn parse_command(input: &str, state: &Client) -> Option<ClientRequest> {
 }
 
 fn get_command(state: &Client) -> Option<ClientRequest> {
-  // LOGGER.info(|| "> ");
   print!("> ");
   stdout().flush().unwrap();
   let mut input = String::new();
@@ -63,7 +61,7 @@ async fn start_client_with_stdin(saddr: SocketAddr) {
   Client::start(saddr, get_command).await;
 }
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() {
   env_logger::init();
 
@@ -111,17 +109,9 @@ async fn main() {
     let conf = Configuration::new(seperated);
     let addr = conf.find_addr(replica_id);
 
-    let (client_tx, client_rx) = unbounded();
-    let (replica_tx, replica_rx) = unbounded();
-
     debug!("Starting replica {:?}", addr.clone());
-    let replica = Replica::new(conf, replica_id, client_rx, replica_tx);
+    let replica = Replica::new(conf, replica_id);
 
-    // Replica listens for requests
-    replica.start();
-
-    // network -> replica
-    // replica -> client || replica -> replica
-    start_io_layer(addr, client_tx, replica_rx).await;
+    start_io_layer(replica, addr).await;
   }
 }

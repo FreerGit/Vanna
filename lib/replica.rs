@@ -1,13 +1,13 @@
-use std::{net::SocketAddr, thread};
+use std::{collections::VecDeque, net::SocketAddr};
 
-use crossbeam::channel::{Receiver, Sender};
 use log::debug;
 
 use crate::{
   client_table::ClienTable,
   configuration::Configuration,
   log::Log,
-  message::{ClientRequest, IORequest, IOResponse, Prepare, PrepareOk, ReplicaMessage},
+  message::{ClientRequest, IORequest, Prepare, PrepareOk, ReplicaMessage, Reply},
+  operation::OpResult,
   types::{CommitID, ReplicaID, ViewNumber},
 };
 
@@ -28,17 +28,12 @@ pub struct Replica {
   commit: CommitID, // commit number, the most recent committed op_number
   client_table: ClienTable,
   // store: KVStore,
-  rx: Receiver<IORequest>,
-  tx: Sender<IOResponse>,
+  client_tx: VecDeque<Reply>, // TODO: per client
+  replica_tx: VecDeque<(SocketAddr, ReplicaMessage)>,
 }
 
 impl Replica {
-  pub fn new(
-    conf: Configuration,
-    replica: ReplicaID,
-    rx: Receiver<IORequest>,
-    tx: Sender<IOResponse>,
-  ) -> Self {
+  pub fn new(conf: Configuration, replica: ReplicaID) -> Self {
     Replica {
       conf,
       replica,
@@ -48,33 +43,19 @@ impl Replica {
       log: Log::default(),
       client_table: ClienTable::default(),
       // store: KVStore::default(),
-      rx,
-      tx,
+      client_tx: VecDeque::default(),
+      replica_tx: VecDeque::default(),
     }
   }
 
-  /// Starts
-  pub fn start(self) {
-    thread::spawn(move || {
-      let mut replica = self;
-      loop {
-        match replica.rx.recv() {
-          Ok(msg) => replica.on_message(msg),
-          Err(_) => todo!(),
-        }
-      }
-    });
-  }
-
   pub fn on_message(&mut self, message: IORequest) {
-    let (x, y) = (self.replica, message.clone());
-    debug!("Replica {} <- {:?}", x, y);
+    debug!("Replica {} <- {:?}", self.replica, message);
 
     match message {
       IORequest::Client(client_request) => self.on_request(client_request),
       IORequest::Replica(replica_message) => match replica_message {
         ReplicaMessage::Prepare(prepare) => self.on_prepare(prepare),
-        ReplicaMessage::PrepareOk(_) => todo!(),
+        ReplicaMessage::PrepareOk(ok) => self.on_prepare_ok(ok),
       },
     }
   }
@@ -99,14 +80,28 @@ impl Replica {
     self.commit_ops(prepare.commit_number);
 
     let primary = self.conf.primary_id(self.view);
-    self.send_prepare_ok(
+
+    self.replica_tx.push_back((
       self.conf.find_addr(primary),
-      PrepareOk {
+      ReplicaMessage::PrepareOk(PrepareOk {
         view_number: self.view,
         op_number: prepare.op_number,
         replica_number: self.replica,
-      },
-    )
+      }),
+    ));
+  }
+
+  fn on_prepare_ok(&mut self, ok: PrepareOk) {
+    assert!(self.is_primary());
+    // TODO - state update
+
+    let r = Reply {
+      view_number: ok.view_number,
+      request_number: 0, // TODO
+      result: OpResult::Outdated,
+    };
+
+    self.client_tx.push_back(r);
   }
 
   fn commit_ops(&mut self, commit: CommitID) {
@@ -130,23 +125,9 @@ impl Replica {
         continue;
       }
       self
-        .tx
-        .send(IOResponse::Replica((
-          *c,
-          ReplicaMessage::Prepare(msg.clone()),
-        )))
-        .unwrap();
+        .replica_tx
+        .push_back((*c, ReplicaMessage::Prepare(msg.clone())));
     }
-  }
-
-  fn send_prepare_ok(&mut self, primary: SocketAddr, prepareok: PrepareOk) {
-    self
-      .tx
-      .send(IOResponse::Replica((
-        primary,
-        ReplicaMessage::PrepareOk(prepareok),
-      )))
-      .unwrap();
   }
 
   fn is_primary(&self) -> bool {
@@ -155,5 +136,13 @@ impl Replica {
 
   fn is_backup(&self) -> bool {
     !self.is_primary()
+  }
+
+  pub fn dequeue_replica_msg(&mut self) -> Option<(SocketAddr, ReplicaMessage)> {
+    self.replica_tx.pop_front()
+  }
+
+  pub fn dequeue_client_reply(&mut self) -> Option<Reply> {
+    self.client_tx.pop_front()
   }
 }

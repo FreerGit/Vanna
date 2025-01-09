@@ -1,4 +1,4 @@
-use std::{fmt::Debug, net::SocketAddr};
+use std::fmt::Debug;
 
 use quickcheck::{Arbitrary, Gen};
 use serde::{Deserialize, Serialize};
@@ -30,8 +30,8 @@ impl Arbitrary for ClientRequest {
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Reply {
-  pub view_number: u32,
-  pub request_number: u32,
+  pub view_number: ViewNumber,
+  pub request_number: RequestNumber,
   pub result: OpResult,
 }
 
@@ -60,10 +60,4 @@ pub enum ReplicaMessage {
 pub enum IORequest {
   Client(ClientRequest),
   Replica(ReplicaMessage),
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-pub enum IOResponse {
-  Client(Reply),
-  Replica((SocketAddr, ReplicaMessage)),
 }
