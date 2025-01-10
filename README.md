@@ -7,7 +7,7 @@ A client can have **at most one in-flight request**
 
 ## TODOs
 <!--  -->
-Join
+Should move away from async, use tick (timeout)
 
 replicas should keep the conenctions open between them.
 

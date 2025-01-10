@@ -1,12 +1,19 @@
 use bytes::Bytes;
+use hashbrown::HashMap;
 use kek::{
-  client::Client, configuration::Configuration, message::ClientRequest, network::start_io_layer,
-  operation::Operation, replica::Replica, types::ReplicaID,
+  client::Client,
+  configuration::Configuration,
+  message::ClientRequest,
+  network::{start_io_layer, ConnectionTable},
+  operation::Operation,
+  replica::Replica,
+  types::ReplicaID,
 };
 use log::{debug, info};
 use std::{
   io::{stdin, stdout, Write},
   net::SocketAddr,
+  sync::{Arc, Mutex},
   time::Duration,
 };
 use tokio::time::sleep;
@@ -61,7 +68,7 @@ async fn start_client_with_stdin(saddr: SocketAddr) {
   Client::start(saddr, get_command).await;
 }
 
-#[tokio::main(flavor = "current_thread")]
+#[tokio::main]
 async fn main() {
   env_logger::init();
 
@@ -108,9 +115,10 @@ async fn main() {
     let seperated = String::as_str(addrs).split(',').collect();
     let conf = Configuration::new(seperated);
     let addr = conf.find_addr(replica_id);
+    let clients: ConnectionTable = Arc::new(Mutex::new(HashMap::new()));
 
     debug!("Starting replica {:?}", addr.clone());
-    let replica = Replica::new(conf, replica_id);
+    let replica = Replica::new(conf, replica_id, clients);
 
     start_io_layer(replica, addr).await;
   }

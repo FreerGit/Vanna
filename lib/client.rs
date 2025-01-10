@@ -1,17 +1,17 @@
-use std::net::SocketAddr;
+use std::net::{SocketAddr, TcpStream};
 
-use crate::message::{self, IORequest};
+use crate::{
+  message::{self, IORequest},
+  network,
+};
 use bytes::Bytes;
-use futures_util::SinkExt;
 use log::debug;
-use tokio::net::TcpStream;
-use tokio_util::codec::{Framed, LengthDelimitedCodec};
 
-use crate::types::{ClientID, RequestNumber};
+use crate::types::{ClientID, RequestID};
 
 pub struct Client {
   pub client_id: ClientID,
-  pub request_number: RequestNumber,
+  pub request_number: RequestID,
 }
 
 impl Client {
@@ -20,44 +20,48 @@ impl Client {
     F: Fn(&Self) -> Option<message::ClientRequest>,
   {
     let client = Client {
-      client_id: 0,
+      // TODO: This should be generated from a seed for testing.
+      client_id: uuid::Uuid::new_v4().as_u128(),
       request_number: 0,
     };
-    let connection = TcpStream::connect(s).await.expect("failed to connect");
-    let mut framed = Framed::new(connection, LengthDelimitedCodec::new());
+    let mut connection = TcpStream::connect(s).unwrap();
 
     loop {
       match f(&client) {
         None => break,
         Some(request) => {
-          let serialized = bincode::serialize(&IORequest::Client(request)).unwrap();
-          framed.send(Bytes::from(serialized)).await.unwrap(); // Send the response
+          network::write_with_header(&mut connection, IORequest::Client(request));
           debug!("Sent");
 
           // let frame = framed.next().await.unwrap().unwrap();
           // let resp: Reply = bincode::deserialize(&frame).unwrap();
-
-          // match resp.result {
-          //     crate::operation::OpResult::JoinResult(Ok(id)) => {
-          //         client.client_id = id;
-          //         client.request_number += 1;
-          //     }
-          //     crate::operation::OpResult::AddResult(_) => todo!(),
-          //     crate::operation::OpResult::UpdateResult(_) => todo!(),
-          //     crate::operation::OpResult::RemoveResult(_) => todo!(),
-          //     crate::operation::OpResult::Outdated => todo!(),
-          //     _ => todo!(),
-          // Response::JoinResult(Ok(client_id)) => {
-          //     state.client_id = client_id;
-          //     state.request_number += 1;
-          // }
-          // Response::AddResult(Ok(_)) => {}
-          // Response::Outdated => {}
-          // _ => panic!("TODO: Handle other response cases"),
+          match network::read_with_header(&mut connection).await {
+            IORequest::Client(client_request) => debug!("{:?}", client_request),
+            IORequest::Replica(replica_message) => todo!(),
+            // Some(Ok(frame)) => {
+            //   debug!("Received frame: {:?}", frame);
+            //   match bincode::deserialize::<Reply>(&frame) {
+            //     Ok(resp) => {
+            //       debug!("{:?}", resp);
+            //     }
+            //     Err(e) => {
+            //       warn!("Failed to deserialize frame: {:?}", e);
+            //       todo!()
+            //     }
+            //   }
+            // }
+            // None => {
+            //   warn!("Connection closed by server");
+            //   todo!()
+            // }
+            // Some(Err(e)) => {
+            //   warn!("Error receiving frame: {:?}", e);
+            //   todo!()
+            // }
+          }
+          // debug!("{:?}", resp);
         }
       }
     }
-
-    // while let Some(com) = f(&client) {}
   }
 }

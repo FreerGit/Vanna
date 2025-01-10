@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 
 use crate::{
+  message::ClientRequest,
   operation::Operation,
   types::{OpNumber, ViewNumber},
 };
@@ -10,7 +11,7 @@ pub struct Log {
   view: ViewNumber,
   start_op_number: OpNumber,
   end_op_number: OpNumber,
-  pub entries: VecDeque<Operation>,
+  pub entries: VecDeque<ClientRequest>,
 }
 
 // impl Arbitrary for Log {
@@ -25,13 +26,13 @@ pub struct Log {
 // }
 
 impl Log {
-  pub fn append(&mut self, view_number: ViewNumber, op: Operation) -> OpNumber {
+  pub fn append(&mut self, view_number: ViewNumber, request: ClientRequest) -> OpNumber {
     self.view = view_number;
     self.end_op_number += 1;
     if self.entries.is_empty() {
       self.start_op_number = self.end_op_number;
     }
-    self.entries.push_back(op);
+    self.entries.push_back(request);
     self.end_op_number
   }
 
