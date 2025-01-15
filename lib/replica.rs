@@ -3,17 +3,16 @@ use std::{
   net::{SocketAddr, TcpStream},
 };
 
-use hashbrown::{HashMap, HashSet};
 use log::debug;
 
 use crate::{
   client_table::ClienTable,
   configuration::Configuration,
   log::Log,
-  message::{ClientRequest, IORequest, Prepare, PrepareOk, ReplicaMessage, Reply},
-  network::ConnectionTable,
+  message::{ClientRequest, IOMessage, Prepare, PrepareOk, ReplicaMessage, Reply},
+  network::{write_message, ConnectionTable},
   operation::OpResult,
-  types::{ClientID, CommitID, OpNumber, ReplicaID, ViewNumber},
+  types::{CommitID, ReplicaID, ViewNumber},
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -32,7 +31,7 @@ pub struct Replica {
   log: Log,
   commit: CommitID, // commit number, the most recent committed op_number
   client_table: ClienTable,
-  reached_consensus: HashMap<OpNumber, HashSet<ReplicaID, usize>>,
+  // reached_consensus: HashMap<OpNumber, HashSet<ReplicaID, usize>>,
   // store: KVStore,
   client_sessions: ConnectionTable,
   replica_tx: VecDeque<(SocketAddr, ReplicaMessage)>,
@@ -48,7 +47,7 @@ impl Replica {
       commit: 0,
       log: Log::default(),
       client_table: ClienTable::default(),
-      reached_consensus: HashMap::default(),
+      // reached_consensus: HashMap::default(),
       // store: KVStore::default(),
       client_sessions,
       replica_tx: VecDeque::default(),
@@ -116,17 +115,15 @@ impl Replica {
 
     // TODO commit
     let req = &self.log.entries[self.commit];
-    debug!("{:?}", req);
+    debug!("PrepareOk {:?}", req);
 
     // TODO, now time to "send" reply
 
     // self.client_tx.push_back(r);
-    self
-      .client_sessions
-      .lock()
-      .unwrap()
-      .get(&req.client_id)
-      .unwrap();
+    let mut binding = self.client_sessions.lock().unwrap();
+    let x = binding.get_mut(&req.client_id).unwrap();
+
+    write_message(x, &IOMessage::Reply(r)).unwrap();
   }
 
   fn commit_ops(&mut self, commit: CommitID) {
@@ -163,11 +160,7 @@ impl Replica {
     !self.is_primary()
   }
 
-  pub fn dequeue_replica_msg(&mut self) -> Option<(SocketAddr, ReplicaMessage)> {
-    self.replica_tx.pop_front()
+  pub fn dequeue_replica_msg(&mut self) -> VecDeque<(SocketAddr, ReplicaMessage)> {
+    self.replica_tx.drain(..).collect()
   }
-
-  // pub fn dequeue_client_reply(&mut self) -> Option<Reply> {
-  //   self.client_tx.pop_front()
-  // }
 }

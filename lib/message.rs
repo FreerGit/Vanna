@@ -57,7 +57,8 @@ pub enum ReplicaMessage {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-pub enum IORequest {
+pub enum IOMessage {
+  Reply(Reply),
   Client(ClientRequest),
   Replica(ReplicaMessage),
 }

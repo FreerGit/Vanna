@@ -1,96 +1,105 @@
 use std::{
-  cell::RefCell,
-  io::{Read, Write},
-  mem::transmute,
+  io::{Error, ErrorKind, Read, Write},
   net::{SocketAddr, TcpListener, TcpStream},
-  rc::Rc,
   sync::{Arc, Mutex},
 };
 
 use hashbrown::HashMap;
-use log::debug;
-use tokio::task::{block_in_place, LocalSet};
+use tokio::task::block_in_place;
 
-use crate::{message::IORequest, replica::Replica, types::ClientID};
+use crate::{message::IOMessage, replica::Replica, types::ClientID};
 
 pub type ConnectionTable = Arc<Mutex<HashMap<ClientID, TcpStream>>>;
 
-pub async fn read_with_header(stream: &mut TcpStream) -> IORequest {
-  debug!("in read");
-  let mut header = [0; 4];
-  stream.read_exact(&mut header).unwrap();
-  let msg_size: usize = u32::from_be_bytes(header).try_into().unwrap();
-  debug!("read header {}", msg_size);
-  let mut buf = vec![0; msg_size];
-  stream.read_exact(buf.as_mut_slice()).unwrap();
-  bincode::deserialize(&buf).unwrap()
+async fn read_exact(s: &mut TcpStream, buf: &mut [u8]) -> Result<(), Error> {
+  let mut pos = 0;
+  while pos < buf.len() {
+    match s.read(&mut buf[pos..]) {
+      Ok(0) => return Err(Error::new(ErrorKind::UnexpectedEof, "connection closed")),
+      Ok(n) => pos += n,
+      Err(e) if e.kind() == ErrorKind::WouldBlock => continue,
+      Err(e) if e.kind() == ErrorKind::Interrupted => continue,
+      Err(e) => return Err(e),
+    }
+  }
+  Ok(())
 }
 
-pub fn write_with_header(s: &mut TcpStream, msg: IORequest) {
-  let serialized = bincode::serialize(&msg).unwrap();
-  let msg_size: u32 = serialized.len().try_into().unwrap();
-  let header: [u8; 4] = unsafe { transmute(msg_size.to_be()) };
-  let mut buf: Vec<u8> = Vec::with_capacity(serialized.len() + 4);
+fn write_all(s: &mut TcpStream, buf: &[u8]) -> Result<(), Error> {
+  let mut pos = 0;
+  while pos < buf.len() {
+    match s.write(&buf[pos..]) {
+      Ok(0) => return Err(Error::new(ErrorKind::WriteZero, "connection closed")),
+      Ok(n) => pos += n,
+      Err(e) if e.kind() == ErrorKind::WouldBlock => continue,
+      Err(e) if e.kind() == ErrorKind::Interrupted => continue,
+      Err(e) => return Err(e),
+    }
+  }
+  s.flush()?;
+  Ok(())
+}
+
+pub async fn read_message(s: &mut TcpStream) -> Result<IOMessage, Error> {
+  let mut header = [0u8; 4];
+  read_exact(s, &mut header).await?;
+
+  let msg_size: usize = u32::from_be_bytes(header)
+    .try_into()
+    .map_err(|e| Error::new(ErrorKind::InvalidData, e))?;
+
+  let mut buf = vec![0u8; msg_size];
+  read_exact(s, &mut buf).await?;
+
+  bincode::deserialize(&buf).map_err(|e| Error::new(ErrorKind::InvalidData, e))
+}
+
+pub fn write_message(s: &mut TcpStream, msg: &IOMessage) -> Result<(), Error> {
+  let serialized = bincode::serialize(msg).map_err(|e| Error::new(ErrorKind::InvalidData, e))?;
+
+  let header = (serialized.len() as u32).to_be_bytes();
+
+  let mut buf = Vec::with_capacity(serialized.len() + 4);
   buf.extend_from_slice(&header);
   buf.extend_from_slice(&serialized);
-  debug!("{:?}", buf);
 
-  s.write(&buf).unwrap(); // TODO
+  write_all(s, &buf)
 }
 
-async fn handle_connection(replica: Arc<Mutex<Replica>>, s: (TcpStream, SocketAddr)) {
+async fn handle_connection(
+  replica: Arc<Mutex<Replica>>,
+  s: (TcpStream, SocketAddr),
+) -> Result<(), Error> {
   loop {
-    debug!("Iter");
+    let msg = read_message(&mut s.0.try_clone().unwrap()).await?;
 
-    match read_with_header(&mut s.0.try_clone().unwrap()).await {
-      IORequest::Client(client_request) => {
-        debug!("{:?}", client_request);
+    match msg {
+      IOMessage::Client(req) => {
         replica
           .lock()
           .unwrap()
-          .on_client_request(client_request, s.0.try_clone().unwrap());
+          .on_client_request(req, s.0.try_clone().unwrap());
+
+        // if let Some(resp) = response {
+        //   conn.write_message(&resp).await?;
+        // }
       }
-      IORequest::Replica(replica_message) => {
-        replica.lock().unwrap().on_replica_message(replica_message)
-      }
+
+      IOMessage::Replica(msg) => replica.lock().unwrap().on_replica_message(msg),
+      IOMessage::Reply(_) => todo!(),
     }
 
-    while let Some((addr, msg)) = replica.lock().unwrap().dequeue_replica_msg() {
+    // Process outgoing messages
+    let replica_m = {
+      let mut replica = replica.lock().unwrap();
+      replica.dequeue_replica_msg()
+    };
+
+    for (addr, msg) in replica_m {
       let mut connection =
         tokio::task::block_in_place(|| TcpStream::connect(addr).expect("failed to connect"));
-      write_with_header(&mut connection, IORequest::Replica(msg));
-      debug!("Sent to replica");
+      write_message(&mut connection, &IOMessage::Replica(msg)).unwrap();
     }
-
-    // match framed.next().await {
-    //   None => {
-    //     warn!("Connect lost");
-    //     break;
-    //   }
-    //   Some(Err(_)) => todo!(),
-    //   Some(Ok(bytes)) => {
-    //     let mut replica = replica.borrow_mut();
-    //     debug!("{:?}", message);
-
-    //     match message {
-    //       IORequest::Client(r) => {
-    //         // clients
-    //         //   .lock()
-    //         //   .unwrap()
-    //         //   .insert(r.client_id, framed.into_inner().);
-    //         replica.on_client_request(r)
-    //       }
-    //       IORequest::Replica(m) => replica.on_replica_message(m),
-    //     }
-
-    //     // // Respond to client
-    //     // debug!("HERE");
-
-    //     // debug!("HERE1");
-    //     // Send to replicas
-
-    //   }
-    // }
   }
 }
 
@@ -106,7 +115,7 @@ pub async fn start_io_layer(replica: Replica, addr: SocketAddr) {
 
       let cloned = Arc::clone(&replica_rc);
       tokio::task::spawn(async move {
-        handle_connection(cloned, conn).await;
+        let _ = handle_connection(cloned, conn).await;
       });
     }
   })

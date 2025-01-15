@@ -2,7 +2,6 @@ use std::collections::VecDeque;
 
 use crate::{
   message::ClientRequest,
-  operation::Operation,
   types::{OpNumber, ViewNumber},
 };
 

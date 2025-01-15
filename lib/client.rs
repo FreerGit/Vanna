@@ -1,10 +1,9 @@
 use std::net::{SocketAddr, TcpStream};
 
 use crate::{
-  message::{self, IORequest},
+  message::{self, IOMessage},
   network,
 };
-use bytes::Bytes;
 use log::debug;
 
 use crate::types::{ClientID, RequestID};
@@ -30,14 +29,15 @@ impl Client {
       match f(&client) {
         None => break,
         Some(request) => {
-          network::write_with_header(&mut connection, IORequest::Client(request));
+          network::write_message(&mut connection, &IOMessage::Client(request)).unwrap();
           debug!("Sent");
 
           // let frame = framed.next().await.unwrap().unwrap();
           // let resp: Reply = bincode::deserialize(&frame).unwrap();
-          match network::read_with_header(&mut connection).await {
-            IORequest::Client(client_request) => debug!("{:?}", client_request),
-            IORequest::Replica(replica_message) => todo!(),
+          match network::read_message(&mut connection).await.unwrap() {
+            IOMessage::Client(client_request) => debug!("{:?}", client_request),
+            IOMessage::Replica(_) => todo!(),
+            IOMessage::Reply(reply) => debug!("{:?}", reply),
             // Some(Ok(frame)) => {
             //   debug!("Received frame: {:?}", frame);
             //   match bincode::deserialize::<Reply>(&frame) {
