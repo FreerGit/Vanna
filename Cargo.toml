@@ -24,4 +24,6 @@ quickcheck_macros = "1.0.0"
 log = "0.4.22"
 env_logger = "0.11.6"
 uuid = { version = "1.11.0", features = ["arbitrary", "v4"] }
+slab = "0.4.9"
+io-uring = "0.7.3"
 

@@ -326,6 +326,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9a3a5bfb195931eeb336b2a7b4d761daec841b97f947d34394601737a7bba5e4"
 
 [[package]]
+name = "io-uring"
+version = "0.7.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c5d5b4a5e02a58296749114728ea3644f9a4cd5669c243896e445b90bd299ad6"
+dependencies = [
+ "bitflags",
+ "cfg-if",
+ "libc",
+]
+
+[[package]]
 name = "is_terminal_polyfill"
 version = "1.70.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -341,10 +352,12 @@ dependencies = [
  "env_logger 0.11.6",
  "futures-util",
  "hashbrown 0.15.2",
+ "io-uring",
  "log",
  "quickcheck",
  "quickcheck_macros",
  "serde",
+ "slab",
  "tokio",
  "tokio-util",
  "uuid",
