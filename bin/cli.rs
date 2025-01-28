@@ -7,6 +7,7 @@ use kek::{
   network::{start_io_layer, ConnectionTable},
   operation::Operation,
   replica::Replica,
+  take_two,
   types::ReplicaID,
 };
 use log::{debug, info};
@@ -118,8 +119,10 @@ async fn main() {
     let clients: ConnectionTable = Arc::new(Mutex::new(HashMap::new()));
 
     debug!("Starting replica {:?}", addr.clone());
-    let replica = Replica::new(conf, replica_id, clients);
+    let mut server = take_two::Server::new(addr);
+    server.run().unwrap();
+    // let replica = Replica::new(conf, replica_id, clients);
 
-    start_io_layer(replica, addr).await;
+    // start_io_layer(replica, addr).await;
   }
 }

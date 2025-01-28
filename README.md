@@ -7,6 +7,8 @@ A client can have **at most one in-flight request**
 
 ## TODOs
 <!--  -->
+Handle non-graceful closes (libc close or ping/pong)
+
 Should move away from async, use tick (timeout)
 
 replicas should keep the conenctions open between them.
