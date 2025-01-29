@@ -1,18 +1,16 @@
 use core::result::Result;
 use core::time;
 use io_uring::cqueue::Entry;
-use io_uring::opcode::{Accept, Socket};
 use io_uring::squeue::PushError;
-use io_uring::{cqueue, opcode, types, CompletionQueue};
-use io_uring::{types::Fd, IoUring};
+use io_uring::IoUring;
+use io_uring::{cqueue, opcode, types};
 use log::debug;
 use slab::Slab;
 use std::collections::VecDeque;
 use std::net::{SocketAddr, TcpListener};
-use std::os::fd::{AsRawFd, IntoRawFd};
+use std::os::fd::IntoRawFd;
 use std::os::unix::io::RawFd;
 use std::thread::sleep;
-use std::time::Duration;
 use std::{io, ptr};
 
 struct Connection {
@@ -109,6 +107,20 @@ impl Server {
     unsafe { self.ring.submission().push(&entry) }?;
     self.ring.submit()?;
 
+    Ok(())
+  }
+
+  fn read_exact(s: &mut TcpStream, buf: &mut [u8]) -> Result<(), Error> {
+    let mut pos = 0;
+    while pos < buf.len() {
+      match s.read(&mut buf[pos..]) {
+        Ok(0) => return Err(Error::new(ErrorKind::UnexpectedEof, "connection closed")),
+        Ok(n) => pos += n,
+        Err(e) if e.kind() == ErrorKind::WouldBlock => continue,
+        Err(e) if e.kind() == ErrorKind::Interrupted => continue,
+        Err(e) => return Err(e),
+      }
+    }
     Ok(())
   }
 

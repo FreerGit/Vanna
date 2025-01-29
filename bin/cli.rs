@@ -1,14 +1,8 @@
 use bytes::Bytes;
 use hashbrown::HashMap;
 use kek::{
-  client::Client,
-  configuration::Configuration,
-  message::ClientRequest,
-  network::{start_io_layer, ConnectionTable},
-  operation::Operation,
-  replica::Replica,
-  take_two,
-  types::ReplicaID,
+  client::Client, configuration::Configuration, message::ClientRequest, network::ConnectionTable,
+  operation::Operation, take_two, types::ReplicaID,
 };
 use log::{debug, info};
 use std::{
@@ -116,7 +110,7 @@ async fn main() {
     let seperated = String::as_str(addrs).split(',').collect();
     let conf = Configuration::new(seperated);
     let addr = conf.find_addr(replica_id);
-    let clients: ConnectionTable = Arc::new(Mutex::new(HashMap::new()));
+    let _: ConnectionTable = Arc::new(Mutex::new(HashMap::new()));
 
     debug!("Starting replica {:?}", addr.clone());
     let mut server = take_two::Server::new(addr);
