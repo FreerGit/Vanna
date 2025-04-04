@@ -1,4 +1,7 @@
-use std::net::{SocketAddr, TcpStream};
+use std::{
+  io::Read,
+  net::{SocketAddr, TcpStream},
+};
 
 use crate::{
   message::{self, IOMessage},
@@ -34,31 +37,32 @@ impl Client {
 
           // let frame = framed.next().await.unwrap().unwrap();
           // let resp: Reply = bincode::deserialize(&frame).unwrap();
-          match network::read_message(&mut connection).await.unwrap() {
-            IOMessage::Client(client_request) => debug!("{:?}", client_request),
-            IOMessage::Replica(_) => todo!(),
-            IOMessage::Reply(reply) => debug!("{:?}", reply),
-            // Some(Ok(frame)) => {
-            //   debug!("Received frame: {:?}", frame);
-            //   match bincode::deserialize::<Reply>(&frame) {
-            //     Ok(resp) => {
-            //       debug!("{:?}", resp);
-            //     }
-            //     Err(e) => {
-            //       warn!("Failed to deserialize frame: {:?}", e);
-            //       todo!()
-            //     }
-            //   }
-            // }
-            // None => {
-            //   warn!("Connection closed by server");
-            //   todo!()
-            // }
-            // Some(Err(e)) => {
-            //   warn!("Error receiving frame: {:?}", e);
-            //   todo!()
-            // }
-          }
+          // connection.
+          // match network::read_message(&mut connection).unwrap() {
+          //   IOMessage::Client(client_request) => debug!("{:?}", client_request),
+          //   IOMessage::Replica(_) => todo!(),
+          //   IOMessage::Reply(reply) => debug!("{:?}", reply),
+          // Some(Ok(frame)) => {
+          //   debug!("Received frame: {:?}", frame);
+          //   match bincode::deserialize::<Reply>(&frame) {
+          //     Ok(resp) => {
+          //       debug!("{:?}", resp);
+          //     }
+          //     Err(e) => {
+          //       warn!("Failed to deserialize frame: {:?}", e);
+          //       todo!()
+          //     }
+          //   }
+          // }
+          // None => {
+          //   warn!("Connection closed by server");
+          //   todo!()
+          // }
+          // Some(Err(e)) => {
+          //   warn!("Error receiving frame: {:?}", e);
+          //   todo!()
+          // }
+          // }
           // debug!("{:?}", resp);
         }
       }

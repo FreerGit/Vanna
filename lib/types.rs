@@ -4,3 +4,4 @@ pub type OpNumber = usize;
 pub type ReplicaID = usize;
 pub type RequestID = usize;
 pub type ViewNumber = usize;
+pub type ConnectionID = usize;

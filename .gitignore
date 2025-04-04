@@ -32,3 +32,6 @@ _opam/
 *.exe
 
 target*
+
+#tmux
+tmux*

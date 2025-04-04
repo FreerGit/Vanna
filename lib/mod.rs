@@ -10,6 +10,7 @@ pub mod configuration;
 pub mod kvstore;
 pub mod log;
 pub mod message;
+pub mod message_bus;
 pub mod network;
 pub mod operation;
 pub mod replica;

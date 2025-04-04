@@ -1,48 +1,45 @@
-use core::result::Result;
 use core::time;
-use io_uring::cqueue::Entry;
-use io_uring::squeue::PushError;
-use io_uring::IoUring;
-use io_uring::{cqueue, opcode, types};
+use std::{
+  io::{self, Error, ErrorKind},
+  net::{SocketAddr, TcpListener},
+  os::fd::{IntoRawFd, RawFd},
+  ptr,
+  thread::sleep,
+};
+
+use io_uring::{
+  cqueue::{self, Entry},
+  opcode,
+  squeue::PushError,
+  types, IoUring,
+};
 use log::debug;
 use slab::Slab;
-use std::collections::VecDeque;
-use std::io::{Error, ErrorKind, Read};
-use std::net::{SocketAddr, TcpListener, TcpStream};
-use std::os::fd::IntoRawFd;
-use std::os::unix::io::RawFd;
-use std::thread::sleep;
-use std::{io, ptr};
 
-use crate::message::IOMessage;
-use crate::network;
-use crate::replica::Replica;
-use crate::types::{ClientID, ReplicaID};
+use crate::{
+  message::IOMessage,
+  replica::Replica,
+  types::{ClientID, ReplicaID},
+};
 
-struct Connection {
-  id: ConnectionType,
+pub struct Connection {
+  peer: Option<PeerType>,
   fd: RawFd,
   state: CState,
   buffer: Vec<u8>,
 }
 
-enum ConnectionType {
-  ClientConnection,
-  ReplicaConnection,
+pub enum PeerType {
+  Unknown,
+  Client(ClientID),
+  Replica(ReplicaID),
 }
 
-struct ClientConnection {
-  id: ClientID,
-}
-
-struct ReplicaConnection {
-  id: ReplicaID,
-}
-
-pub struct Server {
+pub struct MessageBus {
   ring: IoUring,
-  replica: Replica,
+
   connections: Slab<Connection>,
+
   listener_fd: RawFd,
   // backlog: VecDeque<u8>,
 }
@@ -72,16 +69,15 @@ impl From<io::Error> for IOError {
   }
 }
 
-impl Server {
+impl MessageBus {
   pub fn new(addr: SocketAddr, replica: Replica) -> Self {
     let ring = IoUring::new(1024).unwrap();
     let listener = TcpListener::bind(addr).unwrap();
     listener.set_nonblocking(true).unwrap();
 
     debug!("Listening on {:?}", listener.local_addr().unwrap());
-    Server {
+    MessageBus {
       ring,
-      replica,
       connections: Slab::with_capacity(64),
       listener_fd: listener.into_raw_fd(),
       // backlog: VecDeque::new(),
@@ -95,14 +91,14 @@ impl Server {
       self.ring.submit().unwrap();
       let cqes: Vec<Entry> = self.ring.completion().collect();
       for cqe in cqes {
-        if let Err(err) = self.handle_event(cqe) {
-          panic!("{:?}", err);
-        }
+        // if let Err(err) = self.handle_event(cqe) {
+        //   panic!("{:?}", err);
+        // }
       }
 
-      while let Some((replica_id, msg)) = self.replica.dequeue_replica_msg() {
-        self
-      }
+      // while let Some((replica_id, msg)) = self.replica.dequeue_replica_msg() {
+      //   self
+      // }
 
       sleep(time::Duration::from_millis(1));
     }
@@ -174,6 +170,7 @@ impl Server {
       fd: socket,
       state: CState::Reading,
       buffer: vec![0; 1024],
+      peer: None,
     };
     let conn_id = self.connections.insert(conn);
 
@@ -182,54 +179,54 @@ impl Server {
     Ok(())
   }
 
-  fn handle_event(&mut self, cqe: cqueue::Entry) -> Result<(), IOError> {
-    debug!("Event {:?}", cqe);
-    let result = cqe.result();
+  // fn handle_event(&mut self, cqe: cqueue::Entry) -> Result<(), IOError> {
+  //   debug!("Event {:?}", cqe);
+  //   let result = cqe.result();
 
-    if result < 0 {
-      let err = io::Error::from_raw_os_error(-result);
-      debug!("CQE error: {:?}", err);
-      return Err(IOError::IoError(err));
-    }
-    let conn_id = cqe.user_data();
-    debug!("Conn id: {}", conn_id);
-    match conn_id {
-      0 => self.handle_accept(cqe)?,
-      _ => self.handle_connection_event((conn_id - 1) as usize, cqe)?,
-    }
+  //   if result < 0 {
+  //     let err = io::Error::from_raw_os_error(-result);
+  //     debug!("CQE error: {:?}", err);
+  //     return Err(IOError::IoError(err));
+  //   }
+  //   let conn_id = cqe.user_data();
+  //   debug!("Conn id: {}", conn_id);
+  //   match conn_id {
+  //     0 => self.handle_accept(cqe)?,
+  //     _ => self.handle_connection_event((conn_id - 1) as usize, cqe)?,
+  //   }
 
-    Ok(())
-  }
+  //   Ok(())
+  // }
 
-  fn handle_connection_event(&mut self, conn_id: usize, cqe: cqueue::Entry) -> Result<(), IOError> {
-    let conn = &mut self.connections[conn_id];
-    let result = cqe.result();
-    match conn.state {
-      CState::Reading => {
-        let msg = Self::read_message(&mut conn.buffer).unwrap();
-        self.register_read(conn_id)?; // Continue reading after this
-        debug!("msg: {:?}", msg);
-        // debug!("buffer: {}", String::from_utf8_lossy(&conn.buffer.clone()));
+  // fn handle_connection_event(&mut self, conn_id: usize, cqe: cqueue::Entry) -> Result<(), IOError> {
+  //   let conn = &mut self.connections[conn_id];
+  //   let result = cqe.result();
+  //   match conn.state {
+  //     CState::Reading => {
+  //       let msg = Self::read_message(&mut conn.buffer).unwrap();
+  //       self.register_read(conn_id)?; // Continue reading after this
+  //       debug!("msg: {:?}", msg);
+  //       // debug!("buffer: {}", String::from_utf8_lossy(&conn.buffer.clone()));
 
-        match msg {
-          IOMessage::Client(req) => {
-            self.replica.on_client_request(req, conn_id);
-            // replica
-            //   .lock()
-            //   .unwrap()
-            //   .on_client_request(req, s.0.try_clone().unwrap());
+  //       match msg {
+  //         IOMessage::Client(req) => {
+  //           self.replica.on_client_request(req, conn_id);
+  //           // replica
+  //           //   .lock()
+  //           //   .unwrap()
+  //           //   .on_client_request(req, s.0.try_clone().unwrap());
 
-            // if let Some(resp) = response {
-            //   conn.write_message(&resp).await?;
-            // }
-          }
+  //           // if let Some(resp) = response {
+  //           //   conn.write_message(&resp).await?;
+  //           // }
+  //         }
 
-          IOMessage::Replica(msg) => todo!(),
-          IOMessage::Reply(_) => todo!(),
-        }
-      }
-      CState::Writing => todo!(),
-    }
-    Ok(())
-  }
+  //         IOMessage::Replica(msg) => todo!(),
+  //         IOMessage::Reply(_) => todo!(),
+  //       }
+  //     }
+  //     CState::Writing => todo!(),
+  //   }
+  //   Ok(())
+  // }
 }

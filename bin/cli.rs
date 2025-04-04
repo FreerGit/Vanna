@@ -113,9 +113,9 @@ async fn main() {
     let _: ConnectionTable = Arc::new(Mutex::new(HashMap::new()));
 
     debug!("Starting replica {:?}", addr.clone());
-    let mut server = take_two::Server::new(addr);
+    let replica = Replica::new(conf, replica_id, clients);
+    let mut server = take_two::Server::new(addr, replica);
     server.run().unwrap();
-    // let replica = Replica::new(conf, replica_id, clients);
 
     // start_io_layer(replica, addr).await;
   }
